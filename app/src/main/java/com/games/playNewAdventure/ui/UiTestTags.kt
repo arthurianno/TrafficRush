@@ -7,6 +7,8 @@ object UiTestTags {
     const val PUSH_SKIP = "push_skip"
     const val FANTIC_SCREEN = "fantic_screen"
     const val FANTIC_START = "fantic_start"
+    const val FANTIC_LEVELS = "fantic_levels"
+    const val FANTIC_SCORES = "fantic_scores"
     const val NO_INTERNET_SCREEN = "no_internet_screen"
     const val RETRY_BUTTON = "retry_button"
     const val WEBVIEW_SCREEN = "webview_screen"

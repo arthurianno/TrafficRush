@@ -46,11 +46,9 @@ Clear local app state:
 
 Run the debug build and tap the `Debug` button in the top-right corner.
 
-The panel keeps the main controls at the top: `Reset state`, `Restart flow`, `Config source`, and `Mock scenario`.
+The panel keeps the main controls at the top: `Reset state`, `Restart flow`, `Config source` (MOCK/REAL), and `Mock scenario`.
 
-Long `Last URL` and `Current URL` values are shortened by default. Use `Copy` to copy either URL, and `Expand` only when you need to inspect the full value.
-
-Use `Zones OFF/ON` to show or hide the debug click-zone overlay. It draws translucent rectangles over the Start, Accept, and Skip tap areas in debug builds only.
+Long `Last URL` and `Current URL` values are truncated by default. Use `Copy` to copy a URL and `Expand` to reveal the full value.
 
 Debug builds also accept adb intent extras for smoke testing:
 
@@ -73,7 +71,6 @@ Expected: Splash -> Push screen -> Accept/Skip -> WebView.
 
 Expected mock WebView URL: `https://web.team-s.club/`.
 
-If tap targets feel off, enable `Zones ON` in the debug panel and verify that the translucent rectangles cover the drawn Accept and Skip controls on the image.
 
 ## F. Fantic
 
@@ -85,7 +82,7 @@ If tap targets feel off, enable `Zones ON` in the debug panel and verify that th
 
 Expected: Fantic screen.
 
-To verify the Start tap target, enable `Zones ON` in the debug panel and check that the rectangle is centered on the drawn `START` button.
+The `START`, `LEVELS`, and `SCORES` buttons are separate `Image` components and are independently clickable.
 
 ## G. No Internet
 
@@ -144,11 +141,19 @@ https://app.appsflyer.com/com.games.playNewAdventure?pid=Test%20Source&c=testsub
 - Config URL: `https://traficruush.com/config.php`
 - Mock WebView URL: `https://web.team-s.club/`
 
-## Asset Export Notes
+## Asset Notes
 
-Current Figma PNG exports such as `splash_screen.png` and `push_permission_screen.png` are `393x852`. The app now shows these assets fitted and centered instead of aggressively upscaling them fullscreen, but Android devices with high-density or large screens still need larger exports for best quality.
+All game screens are assembled natively from individual PNG assets.
 
-Recommended export: portrait PNG `1080x2400` or Figma `@3x/@4x` assets for fullscreen screens.
+| Screen | Background | Key elements |
+|---|---|---|
+| `LoadingScreen` | `farm_background.png` (Crop) + 0.25 overlay | `logo_egg_flip.png`, `CircularProgressIndicator` |
+| `FanticScreen` | `farm_background.png` (Crop) + 0.20 overlay | `logo_egg_flip.png`, `btn_start/levels/scores.png`, `btn_settings/home.png` |
+| `PushPermissionScreen` | `farm_background.png` (Crop) + bottom gradient | `chicken_character.png`, `push_egg_top_right.png`, `push_egg_left.png`, `push_nest_eggs.png`, `btn_accept.png`, native `Text` |
+
+Reference-only PNGs in `drawable-nodpi` (not rendered in any screen): `push_permission_screen.png`, `fantic_main.png`, `splash_screen.png`, `background.png`.
+
+All buttons are real clickable Compose `Image` or `Text` elements — no transparent overlay click zones.
 
 ## Real Config Opt-In Test
 

@@ -1,36 +1,34 @@
 package com.games.playNewAdventure.ui
 
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -40,8 +38,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.games.playNewAdventure.R
 
 @Composable
@@ -49,14 +47,29 @@ fun LoadingScreen(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxSize()
-            .testTag(UiTestTags.LOADING_SCREEN)
-            .gameScreenBackground()
-            .systemBarsPadding(),
+            .testTag(UiTestTags.LOADING_SCREEN),
         contentAlignment = Alignment.Center
     ) {
-        // TODO: replace with a higher-resolution splash export, recommended 1080x2400 or larger.
-        // Current exported PNG is 393x852; keep it fitted instead of fullscreen-upscaling it.
-        CenteredPngFrame(drawableRes = R.drawable.splash_screen)
+        FarmBackground()
+        DarkOverlay(alpha = OVERLAY_ALPHA_LOADING)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.logo_egg_flip),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth(LOADING_LOGO_WIDTH_FRACTION)
+                    .heightIn(max = LOADING_LOGO_MAX_HEIGHT)
+            )
+            Spacer(modifier = Modifier.height(LOADING_LOGO_SPINNER_GAP))
+            CircularProgressIndicator(
+                color = Color.White,
+                strokeWidth = LOADING_SPINNER_STROKE
+            )
+        }
     }
 }
 
@@ -116,28 +129,65 @@ fun NoInternetScreen(
 }
 
 @Composable
-fun FanticScreen(
-    modifier: Modifier = Modifier,
-    showClickZones: Boolean = false
-) {
-    val context = LocalContext.current
-
+fun FanticScreen(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxSize()
             .testTag(UiTestTags.FANTIC_SCREEN)
     ) {
-        FullScreenPngBackground(drawableRes = R.drawable.fantic_main)
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            CropAwareClickZone(
-                topFraction = FANTIC_START_TOP_FRACTION,
-                heightFraction = FANTIC_START_HEIGHT_FRACTION,
-                widthFraction = FANTIC_BUTTON_WIDTH_FRACTION,
-                showOverlay = showClickZones,
-                testTag = UiTestTags.FANTIC_START,
-                onClick = {
-                    Toast.makeText(context, R.string.coming_soon, Toast.LENGTH_SHORT).show()
-                }
+        FarmBackground()
+        DarkOverlay(alpha = OVERLAY_ALPHA_FANTIC)
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopStart)
+                .systemBarsPadding()
+                .padding(
+                    horizontal = FANTIC_TOP_BAR_H_PADDING,
+                    vertical = FANTIC_TOP_BAR_V_PADDING
+                ),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TopIconButton(resId = R.drawable.btn_settings, contentDescription = "Settings")
+            TopIconButton(resId = R.drawable.btn_home, contentDescription = "Home")
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .systemBarsPadding()
+                .padding(horizontal = FANTIC_CONTENT_H_PADDING),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.logo_egg_flip),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth(FANTIC_LOGO_WIDTH_FRACTION)
+                    .heightIn(max = FANTIC_LOGO_MAX_HEIGHT)
+            )
+            Spacer(modifier = Modifier.height(FANTIC_LOGO_BUTTON_GAP))
+            GameMenuButton(
+                resId = R.drawable.btn_start,
+                contentDescription = "Start",
+                testTag = UiTestTags.FANTIC_START
+            )
+            Spacer(modifier = Modifier.height(FANTIC_BUTTON_GAP))
+            GameMenuButton(
+                resId = R.drawable.btn_levels,
+                contentDescription = "Levels",
+                testTag = UiTestTags.FANTIC_LEVELS
+            )
+            Spacer(modifier = Modifier.height(FANTIC_BUTTON_GAP))
+            GameMenuButton(
+                resId = R.drawable.btn_scores,
+                contentDescription = "Scores",
+                testTag = UiTestTags.FANTIC_SCORES
             )
         }
     }
@@ -147,182 +197,116 @@ fun FanticScreen(
 fun PushPermissionScreen(
     onAllowClick: () -> Unit,
     onSkipClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    showClickZones: Boolean = false
+    modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .fillMaxSize()
             .testTag(UiTestTags.PUSH_PERMISSION_SCREEN)
-            .gameScreenBackground()
-            .systemBarsPadding(),
-        contentAlignment = Alignment.Center
     ) {
-        CenteredPngFrame(drawableRes = R.drawable.push_permission_screen) {
-            TransparentClickZone(
-                topFraction = PUSH_ACCEPT_TOP_FRACTION,
-                heightFraction = PUSH_ACCEPT_HEIGHT_FRACTION,
-                widthFraction = PUSH_ACCEPT_WIDTH_FRACTION,
-                showOverlay = showClickZones,
-                testTag = UiTestTags.PUSH_ACCEPT,
-                onClick = onAllowClick
-            )
-            TransparentClickZone(
-                topFraction = PUSH_SKIP_TOP_FRACTION,
-                heightFraction = PUSH_SKIP_HEIGHT_FRACTION,
-                widthFraction = PUSH_SKIP_WIDTH_FRACTION,
-                showOverlay = showClickZones,
-                testTag = UiTestTags.PUSH_SKIP,
-                onClick = onSkipClick
-            )
-        }
-    }
-}
+        FarmBackground()
+        BottomGradient(heightFraction = PUSH_BG_GRADIENT_HEIGHT)
 
-@Composable
-private fun Modifier.gameScreenBackground(): Modifier {
-    return background(
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                colorResource(id = R.color.game_background_top),
-                colorResource(id = R.color.game_background_bottom)
-            )
+        DecoImage(
+            resId = R.drawable.push_egg_top_right,
+            width = PUSH_EGG_TR_WIDTH,
+            height = PUSH_EGG_TR_HEIGHT,
+            alignment = Alignment.TopEnd,
+            offsetX = PUSH_EGG_TR_OFFSET_X,
+            offsetY = PUSH_EGG_TR_OFFSET_Y
         )
-    )
-}
+        DecoImage(
+            resId = R.drawable.push_egg_left,
+            width = PUSH_EGG_L_WIDTH,
+            height = PUSH_EGG_L_HEIGHT,
+            alignment = Alignment.TopStart,
+            offsetX = PUSH_EGG_L_OFFSET_X,
+            offsetY = PUSH_EGG_L_OFFSET_Y
+        )
+        DecoImage(
+            resId = R.drawable.push_nest_eggs,
+            width = PUSH_NEST_WIDTH,
+            height = PUSH_NEST_HEIGHT,
+            alignment = Alignment.TopEnd,
+            offsetX = PUSH_NEST_OFFSET_X,
+            offsetY = PUSH_NEST_OFFSET_Y
+        )
+        DecoImage(
+            resId = R.drawable.chicken_character,
+            width = PUSH_CHICKEN_WIDTH,
+            height = PUSH_CHICKEN_HEIGHT,
+            alignment = Alignment.TopCenter,
+            offsetX = PUSH_CHICKEN_OFFSET_X,
+            offsetY = PUSH_CHICKEN_OFFSET_Y
+        )
 
-@Composable
-private fun FullScreenPngBackground(
-    drawableRes: Int,
-    modifier: Modifier = Modifier
-) {
-    Image(
-        painter = painterResource(id = drawableRes),
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier = modifier.fillMaxSize()
-    )
-}
-
-@Composable
-private fun CenteredPngFrame(
-    drawableRes: Int,
-    modifier: Modifier = Modifier,
-    content: @Composable BoxWithConstraintsScope.() -> Unit = {}
-) {
-    BoxWithConstraints(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(CENTERED_IMAGE_SCREEN_PADDING),
-        contentAlignment = Alignment.Center
-    ) {
-        val availableWidth = maxWidth
-        val availableHeight = maxHeight
-        val widthByHeight = availableHeight / PNG_DESIGN_ASPECT_RATIO
-        val frameWidth = minOf(PNG_DESIGN_WIDTH, availableWidth, widthByHeight).coerceAtLeast(1.dp)
-        val frameHeight = frameWidth * PNG_DESIGN_ASPECT_RATIO
-
-        Box(
+        Column(
             modifier = Modifier
-                .width(frameWidth)
-                .height(frameHeight)
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(
+                    start = PUSH_CONTENT_H_PADDING,
+                    end = PUSH_CONTENT_H_PADDING,
+                    bottom = PUSH_CONTENT_BOTTOM_PADDING
+                ),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Image(
-                painter = painterResource(id = drawableRes),
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
+            Text(
+                text = "ALLOW NOTIFICATIONS ABOUT\nBONUSES AND PROMOS",
+                color = Color(0xFFFFF0A0),
+                fontSize = PUSH_CONTENT_TITLE_SIZE,
+                fontWeight = FontWeight.ExtraBold,
+                lineHeight = PUSH_CONTENT_TITLE_HEIGHT,
+                textAlign = TextAlign.Center,
+                letterSpacing = 0.5.sp,
+                modifier = Modifier.fillMaxWidth()
             )
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                content()
-            }
+            Spacer(modifier = Modifier.height(PUSH_CONTENT_TITLE_SUBTITLE_GAP))
+            Text(
+                text = "Stay tuned with best offers\nfrom our casino",
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = PUSH_CONTENT_SUBTITLE_SIZE,
+                fontWeight = FontWeight.Normal,
+                lineHeight = PUSH_CONTENT_SUBTITLE_HEIGHT,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(PUSH_CONTENT_SUBTITLE_BUTTON_GAP))
+            Image(
+                painter = painterResource(id = R.drawable.btn_accept),
+                contentDescription = "Accept",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth(PUSH_ACCEPT_WIDTH_FRACTION)
+                    .heightIn(min = PUSH_ACCEPT_MIN_HEIGHT, max = PUSH_ACCEPT_MAX_HEIGHT)
+                    .testTag(UiTestTags.PUSH_ACCEPT)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onAllowClick
+                    )
+            )
+            Spacer(modifier = Modifier.height(PUSH_CONTENT_BUTTON_SKIP_GAP))
+            Text(
+                text = "Skip",
+                color = Color.White.copy(alpha = 0.80f),
+                fontSize = PUSH_SKIP_SIZE,
+                fontWeight = FontWeight.Normal,
+                modifier = Modifier
+                    .testTag(UiTestTags.PUSH_SKIP)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onSkipClick
+                    )
+                    .padding(
+                        horizontal = PUSH_SKIP_H_PADDING,
+                        vertical = PUSH_SKIP_V_PADDING
+                    )
+            )
         }
     }
-}
-
-@Composable
-private fun BoxWithConstraintsScope.CropAwareClickZone(
-    topFraction: Float,
-    heightFraction: Float,
-    widthFraction: Float,
-    showOverlay: Boolean,
-    testTag: String,
-    onClick: () -> Unit
-) {
-    val renderedHeightByWidth = maxWidth * PNG_DESIGN_ASPECT_RATIO
-    val renderedWidthByHeight = maxHeight / PNG_DESIGN_ASPECT_RATIO
-    val renderedWidth: Dp
-    val renderedHeight: Dp
-
-    if (renderedHeightByWidth >= maxHeight) {
-        renderedWidth = maxWidth
-        renderedHeight = renderedHeightByWidth
-    } else {
-        renderedWidth = renderedWidthByHeight
-        renderedHeight = maxHeight
-    }
-
-    val imageTopOffset = (maxHeight - renderedHeight) / 2
-    ClickZone(
-        topOffset = imageTopOffset + renderedHeight * topFraction,
-        zoneWidth = renderedWidth * widthFraction,
-        zoneHeight = renderedHeight * heightFraction,
-        showOverlay = showOverlay,
-        testTag = testTag,
-        onClick = onClick
-    )
-}
-
-@Composable
-private fun BoxWithConstraintsScope.TransparentClickZone(
-    topFraction: Float,
-    heightFraction: Float,
-    widthFraction: Float,
-    showOverlay: Boolean,
-    testTag: String,
-    onClick: () -> Unit
-) {
-    ClickZone(
-        topOffset = maxHeight * topFraction,
-        zoneWidth = maxWidth * widthFraction,
-        zoneHeight = maxHeight * heightFraction,
-        showOverlay = showOverlay,
-        testTag = testTag,
-        onClick = onClick
-    )
-}
-
-@Composable
-private fun BoxWithConstraintsScope.ClickZone(
-    topOffset: Dp,
-    zoneWidth: Dp,
-    zoneHeight: Dp,
-    showOverlay: Boolean,
-    testTag: String,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .align(Alignment.TopCenter)
-            .offset(y = topOffset)
-            .width(zoneWidth)
-            .height(zoneHeight)
-            .testTag(testTag)
-            .then(
-                if (showOverlay) {
-                    Modifier
-                        .background(colorResource(id = R.color.debug_click_zone_overlay))
-                        .border(1.dp, colorResource(id = R.color.button_text))
-                } else {
-                    Modifier
-                }
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            )
-    )
 }
 
 @Composable
@@ -346,25 +330,6 @@ private fun GameButton(
             contentColor = colorResource(id = R.color.button_text)
         )
     ) {
-        Text(
-            text = text,
-            fontWeight = FontWeight.Bold
-        )
+        Text(text = text, fontWeight = FontWeight.Bold)
     }
 }
-
-// Click zones are tuned against exported portrait PNGs sized 393x852.
-private const val FANTIC_START_TOP_FRACTION = 0.545f
-private const val FANTIC_START_HEIGHT_FRACTION = 0.12f
-private const val FANTIC_BUTTON_WIDTH_FRACTION = 0.76f
-
-private const val PUSH_ACCEPT_TOP_FRACTION = 0.795f
-private const val PUSH_ACCEPT_HEIGHT_FRACTION = 0.10f
-private const val PUSH_ACCEPT_WIDTH_FRACTION = 0.76f
-private const val PUSH_SKIP_TOP_FRACTION = 0.905f
-private const val PUSH_SKIP_HEIGHT_FRACTION = 0.055f
-private const val PUSH_SKIP_WIDTH_FRACTION = 0.46f
-
-private const val PNG_DESIGN_ASPECT_RATIO = 852f / 393f
-private val PNG_DESIGN_WIDTH = 393.dp
-private val CENTERED_IMAGE_SCREEN_PADDING = 16.dp
