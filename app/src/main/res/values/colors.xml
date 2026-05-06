@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- TODO: replace with Figma values. -->
+    <color name="primary_background">#F5F7FA</color>
+    <!-- TODO: replace with Figma values. -->
+    <color name="secondary_background">#FFFFFF</color>
+    <!-- TODO: replace with Figma values. -->
+    <color name="primary_text">#151922</color>
+    <!-- TODO: replace with Figma values. -->
+    <color name="secondary_text">#626A78</color>
+    <!-- TODO: replace with Figma values. -->
+    <color name="accent_color">#2563EB</color>
+    <!-- TODO: replace with Figma values. -->
+    <color name="button_background">#2563EB</color>
+    <!-- TODO: replace with Figma values. -->
+    <color name="button_text">#FFFFFF</color>
+    <!-- TODO: replace with Figma values. -->
+    <color name="button_secondary_border">#D2D8E5</color>
+    <!-- TODO: replace with Figma values. -->
+    <color name="game_background_top">#274B55</color>
+    <!-- TODO: replace with Figma values. -->
+    <color name="game_background_bottom">#081109</color>
+    <color name="debug_click_zone_overlay">#66FF3B30</color>
+</resources>

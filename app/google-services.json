@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "207704284021",
+    "project_id": "app-01-c1c8f",
+    "storage_bucket": "app-01-c1c8f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:207704284021:android:893b86d22c6e11a3a0d13c",
+        "android_client_info": {
+          "package_name": "com.games.playNewAdventure"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDyed9dZxc1OtcHM87mzuR1QQSAZi0gBDE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

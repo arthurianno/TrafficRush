@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.TrafficRush" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/bg_placeholder</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">@color/accent_color</item>
+        <item name="android:navigationBarColor">@color/primary_background</item>
+        <item name="android:statusBarColor">@color/primary_background</item>
+    </style>
+</resources>

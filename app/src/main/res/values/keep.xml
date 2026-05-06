@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/app_icon_source,@drawable/gameplay_screen,@drawable/golden_eggs,@drawable/promo_banner,@drawable/banner,@drawable/levels_screen,@drawable/pause_screen">
+    <!-- TODO: generate adaptive launcher icon assets from @drawable/app_icon_source when icon pipeline is approved. -->
+</resources>

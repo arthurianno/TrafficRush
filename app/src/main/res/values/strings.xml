@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Traffic Rush</string>
+    <string name="no_internet_title">Нет интернета</string>
+    <string name="no_internet_message">Проверьте подключение и попробуйте снова.</string>
+    <string name="retry_button">Retry</string>
+    <string name="coming_soon">Coming soon</string>
+</resources>

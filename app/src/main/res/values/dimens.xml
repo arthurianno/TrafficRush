@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- TODO: replace with Figma values. -->
+    <dimen name="corner_radius">24dp</dimen>
+    <!-- TODO: replace with Figma values. -->
+    <dimen name="screen_horizontal_padding">24dp</dimen>
+    <!-- TODO: replace with Figma values. -->
+    <dimen name="screen_vertical_padding">24dp</dimen>
+    <!-- TODO: replace with Figma values. -->
+    <dimen name="content_max_width">440dp</dimen>
+    <!-- TODO: replace with Figma values. -->
+    <dimen name="button_height">52dp</dimen>
+    <!-- TODO: replace with Figma values. -->
+    <dimen name="button_border_width">1dp</dimen>
+    <!-- TODO: replace with Figma values. -->
+    <dimen name="spacing_sm">12dp</dimen>
+    <!-- TODO: replace with Figma values. -->
+    <dimen name="spacing_md">20dp</dimen>
+    <!-- TODO: replace with Figma values. -->
+    <dimen name="spacing_lg">28dp</dimen>
+</resources>
