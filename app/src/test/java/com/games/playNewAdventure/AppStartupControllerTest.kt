@@ -1,21 +1,23 @@
 package com.games.playNewAdventure
 
-import android.app.Activity
-import com.games.playNewAdventure.data.StartupStorage
-import com.games.playNewAdventure.service.AttributionService
-import com.games.playNewAdventure.service.ConfigService
-import com.games.playNewAdventure.service.DeviceDataProvider
 import com.games.playNewAdventure.service.MockConfigService
-import com.games.playNewAdventure.service.NetworkChecker
-import com.games.playNewAdventure.service.PushService
-import com.games.playNewAdventure.startup.AppMode
 import com.games.playNewAdventure.startup.AppStartupController
-import com.games.playNewAdventure.startup.AttributionData
-import com.games.playNewAdventure.startup.ConfigProviderMode
-import com.games.playNewAdventure.startup.ConfigResponse
-import com.games.playNewAdventure.startup.MockConfigScenario
-import com.games.playNewAdventure.startup.PushData
-import com.games.playNewAdventure.startup.StartupResult
+import com.games.playNewAdventure.startup.domain.AppMode
+import com.games.playNewAdventure.startup.domain.AttributionData
+import com.games.playNewAdventure.startup.domain.AttributionProvider
+import com.games.playNewAdventure.startup.domain.AttributionProviderMode
+import com.games.playNewAdventure.startup.domain.ConfigDebugResultType
+import com.games.playNewAdventure.startup.domain.ConfigFetchResult
+import com.games.playNewAdventure.startup.domain.ConfigProvider
+import com.games.playNewAdventure.startup.domain.ConfigProviderMode
+import com.games.playNewAdventure.startup.domain.DeviceDataProvider
+import com.games.playNewAdventure.startup.domain.MockConfigScenario
+import com.games.playNewAdventure.startup.domain.NetworkStatusProvider
+import com.games.playNewAdventure.startup.domain.PushData
+import com.games.playNewAdventure.startup.domain.PushTokenProvider
+import com.games.playNewAdventure.startup.domain.PushTokenProviderMode
+import com.games.playNewAdventure.startup.domain.StartupResult
+import com.games.playNewAdventure.startup.domain.StartupStateRepository
 import java.io.IOException
 import java.net.SocketTimeoutException
 import kotlinx.coroutines.runBlocking
@@ -30,7 +32,7 @@ class AppStartupControllerTest {
         val storage = InMemoryAppStorage()
         val controller = createController(
             storage = storage,
-            configService = MockConfigService { MockConfigScenario.SUCCESS_WEBVIEW }
+            configProvider = MockConfigService { MockConfigScenario.SUCCESS_WEBVIEW }
         )
 
         val result = controller.resolveStartup()
@@ -48,44 +50,84 @@ class AppStartupControllerTest {
         val storage = InMemoryAppStorage()
         val controller = createController(
             storage = storage,
-            configService = MockConfigService { MockConfigScenario.NEGATIVE_RESPONSE }
+            configProvider = MockConfigService { MockConfigScenario.NEGATIVE_RESPONSE }
         )
 
         val result = controller.resolveStartup()
 
         assertEquals(StartupResult.ShowFantic, result)
         assertEquals(AppMode.FANTIC, storage.appMode)
+
+        val snapshot = controller.debugSnapshot()
+        assertEquals(ConfigDebugResultType.NEGATIVE, snapshot.lastConfigResponse?.resultType)
+        assertEquals("FANTIC", snapshot.lastStartupDecision)
+        assertEquals("Server returned negative config. Fantic is expected.", snapshot.lastStartupDecisionReason)
     }
 
     @Test
-    fun firstLaunchOfflineShowsNoInternetAndKeepsUnknownMode() = runBlocking {
+    fun firstLaunchWithTransientTimeoutDoesNotSaveFanticAndShowsRetryScreen() = runBlocking {
         val storage = InMemoryAppStorage()
-        val configService = FakeConfigService.success(successResponse(AppConstants.MOCK_WEBVIEW_URL))
         val controller = createController(
             storage = storage,
-            networkChecker = FakeNetworkChecker(isOnline = false),
-            configService = configService
+            configProvider = FakeConfigProvider.success(
+                ConfigFetchResult.TransientError("timeout")
+            )
         )
 
         val result = controller.resolveStartup()
 
         assertEquals(StartupResult.ShowNoInternet, result)
         assertEquals(AppMode.UNKNOWN, storage.appMode)
-        assertEquals(0, configService.requestCount)
+        assertEquals(null, storage.lastWebViewUrl)
+
+        val snapshot = controller.debugSnapshot()
+        assertEquals(ConfigDebugResultType.TRANSIENT_ERROR, snapshot.lastConfigResponse?.resultType)
+        assertEquals("NO_INTERNET", snapshot.lastStartupDecision)
     }
 
     @Test
-    fun subsequentWebViewOnlineFallsBackToLastUrlWhenConfigServerErrorOrTimeout() = runBlocking {
+    fun firstLaunchWithIOExceptionDoesNotSaveFanticAndShowsRetryScreen() = runBlocking {
+        val storage = InMemoryAppStorage()
+        val controller = createController(
+            storage = storage,
+            configProvider = FakeConfigProvider.failure(IOException("server error"))
+        )
+
+        val result = controller.resolveStartup()
+
+        assertEquals(StartupResult.ShowNoInternet, result)
+        assertEquals(AppMode.UNKNOWN, storage.appMode)
+        assertEquals(null, storage.lastWebViewUrl)
+    }
+
+    @Test
+    fun firstLaunchOfflineShowsNoInternetAndKeepsUnknownMode() = runBlocking {
+        val storage = InMemoryAppStorage()
+        val configProvider = FakeConfigProvider.success(successResult(AppConstants.MOCK_WEBVIEW_URL))
+        val controller = createController(
+            storage = storage,
+            networkStatusProvider = FakeNetworkStatusProvider(isOnline = false),
+            configProvider = configProvider
+        )
+
+        val result = controller.resolveStartup()
+
+        assertEquals(StartupResult.ShowNoInternet, result)
+        assertEquals(AppMode.UNKNOWN, storage.appMode)
+        assertEquals(0, configProvider.requestCount)
+    }
+
+    @Test
+    fun subsequentWebViewOnlineFallsBackToLastUrlWhenConfigTransientErrorOrThrows() = runBlocking {
         listOf(
-            IOException("server error"),
-            SocketTimeoutException("timeout")
-        ).forEach { failure ->
+            FakeConfigProvider.success(ConfigFetchResult.TransientError("server error")),
+            FakeConfigProvider.failure(SocketTimeoutException("timeout"))
+        ).forEach { configProvider ->
             val storage = InMemoryAppStorage(
                 initialMode = AppMode.WEBVIEW,
                 initialLastUrl = CACHED_WEBVIEW_URL
             )
-            val configService = FakeConfigService.failure(failure)
-            val controller = createController(storage = storage, configService = configService)
+            val controller = createController(storage = storage, configProvider = configProvider)
 
             val result = controller.resolveStartup()
 
@@ -93,8 +135,26 @@ class AppStartupControllerTest {
             result as StartupResult.ShowWebView
             assertEquals(CACHED_WEBVIEW_URL, result.url)
             assertEquals(AppMode.WEBVIEW, storage.appMode)
-            assertEquals(1, configService.requestCount)
+            assertEquals(1, configProvider.requestCount)
         }
+    }
+
+    @Test
+    fun subsequentWebViewOnlineFallsBackToLastUrlWhenConfigNegative() = runBlocking {
+        val storage = InMemoryAppStorage(
+            initialMode = AppMode.WEBVIEW,
+            initialLastUrl = CACHED_WEBVIEW_URL
+        )
+        val configProvider = FakeConfigProvider.success(ConfigFetchResult.Negative("No data"))
+        val controller = createController(storage = storage, configProvider = configProvider)
+
+        val result = controller.resolveStartup()
+
+        assertTrue(result is StartupResult.ShowWebView)
+        result as StartupResult.ShowWebView
+        assertEquals(CACHED_WEBVIEW_URL, result.url)
+        assertEquals(AppMode.WEBVIEW, storage.appMode)
+        assertEquals(1, configProvider.requestCount)
     }
 
     @Test
@@ -103,34 +163,34 @@ class AppStartupControllerTest {
             initialMode = AppMode.WEBVIEW,
             initialLastUrl = CACHED_WEBVIEW_URL
         )
-        val configService = FakeConfigService.success(successResponse(AppConstants.MOCK_WEBVIEW_URL))
+        val configProvider = FakeConfigProvider.success(successResult(AppConstants.MOCK_WEBVIEW_URL))
         val controller = createController(
             storage = storage,
-            networkChecker = FakeNetworkChecker(isOnline = false),
-            configService = configService
+            networkStatusProvider = FakeNetworkStatusProvider(isOnline = false),
+            configProvider = configProvider
         )
 
         val result = controller.resolveStartup()
 
         assertEquals(StartupResult.ShowNoInternet, result)
         assertEquals(AppMode.WEBVIEW, storage.appMode)
-        assertEquals(0, configService.requestCount)
+        assertEquals(0, configProvider.requestCount)
     }
 
     @Test
     fun subsequentFanticOfflineShowsFanticAndSkipsNetworkAndConfig() = runBlocking {
         val storage = InMemoryAppStorage(initialMode = AppMode.FANTIC)
-        val configService = FakeConfigService.success(successResponse(AppConstants.MOCK_WEBVIEW_URL))
+        val configProvider = FakeConfigProvider.success(successResult(AppConstants.MOCK_WEBVIEW_URL))
         val controller = createController(
             storage = storage,
-            networkChecker = FakeNetworkChecker(isOnline = false),
-            configService = configService
+            networkStatusProvider = FakeNetworkStatusProvider(isOnline = false),
+            configProvider = configProvider
         )
 
         val result = controller.resolveStartup()
 
         assertEquals(StartupResult.ShowFantic, result)
-        assertEquals(0, configService.requestCount)
+        assertEquals(0, configProvider.requestCount)
     }
 
     @Test
@@ -142,7 +202,7 @@ class AppStartupControllerTest {
         storage.pushPromptDeclinedAtSeconds = 0L
         val controller = createController(
             storage = storage,
-            configService = FakeConfigService.failure(IOException("server error"))
+            configProvider = FakeConfigProvider.success(ConfigFetchResult.TransientError("server error"))
         )
 
         val result = controller.resolveStartup() as StartupResult.ShowWebView
@@ -160,7 +220,7 @@ class AppStartupControllerTest {
         storage.pushPromptDeclinedAtSeconds = nowSeconds - (THREE_DAYS_SECONDS - 1)
         val controller = createController(
             storage = storage,
-            configService = FakeConfigService.failure(IOException("server error")),
+            configProvider = FakeConfigProvider.success(ConfigFetchResult.TransientError("server error")),
             currentEpochSeconds = { nowSeconds }
         )
 
@@ -179,7 +239,7 @@ class AppStartupControllerTest {
         storage.pushPromptDeclinedAtSeconds = nowSeconds - (THREE_DAYS_SECONDS + 1)
         val controller = createController(
             storage = storage,
-            configService = FakeConfigService.failure(IOException("server error")),
+            configProvider = FakeConfigProvider.success(ConfigFetchResult.TransientError("server error")),
             currentEpochSeconds = { nowSeconds }
         )
 
@@ -188,18 +248,78 @@ class AppStartupControllerTest {
         assertTrue(result.shouldAskPushPermission)
     }
 
+    @Test
+    fun pushPermissionResultIsPersistedWithoutActivityDependency() {
+        val nowSeconds = 1_000_000L
+        val storage = InMemoryAppStorage()
+        val controller = createController(
+            storage = storage,
+            currentEpochSeconds = { nowSeconds }
+        )
+
+        controller.recordPushPermissionResult(true)
+        assertTrue(storage.pushPermissionGranted)
+        assertEquals(0L, storage.pushPromptDeclinedAtSeconds)
+
+        controller.recordPushPermissionResult(false)
+        assertFalse(storage.pushPermissionGranted)
+        assertEquals(nowSeconds, storage.pushPromptDeclinedAtSeconds)
+    }
+
+    @Test
+    fun refreshDebugDiagnosticsShowsRealAppsFlyerUidWithoutMarkingConfigSent() = runBlocking {
+        val storage = InMemoryAppStorage().apply {
+            attributionProviderMode = AttributionProviderMode.REAL
+            pushTokenProviderMode = PushTokenProviderMode.REAL
+        }
+        val controller = createController(
+            storage = storage,
+            attributionProvider = FakeAttributionProvider(mapOf("af_id" to REAL_APPS_FLYER_UID))
+        )
+
+        controller.refreshDebugDiagnostics()
+
+        val snapshot = controller.debugSnapshot()
+        assertEquals(REAL_APPS_FLYER_UID, snapshot.appsFlyerUid)
+        assertTrue(snapshot.fcmTokenAvailable)
+        assertFalse(snapshot.appsFlyerUidSentToConfig)
+        assertFalse(snapshot.pushTokenSentToConfig)
+    }
+
+    @Test
+    fun realConfigRequestMarksCurrentAfIdAndPushTokenAsSentToConfig() = runBlocking {
+        val storage = InMemoryAppStorage().apply {
+            configProviderMode = ConfigProviderMode.REAL
+            attributionProviderMode = AttributionProviderMode.REAL
+            pushTokenProviderMode = PushTokenProviderMode.REAL
+        }
+        val controller = createController(
+            storage = storage,
+            attributionProvider = FakeAttributionProvider(mapOf("af_id" to REAL_APPS_FLYER_UID))
+        )
+
+        controller.resolveStartup()
+
+        val snapshot = controller.debugSnapshot()
+        assertEquals(REAL_APPS_FLYER_UID, snapshot.appsFlyerUid)
+        assertTrue(snapshot.appsFlyerUidSentToConfig)
+        assertTrue(snapshot.pushTokenSentToConfig)
+    }
+
     private fun createController(
         storage: InMemoryAppStorage = InMemoryAppStorage(),
-        networkChecker: NetworkChecker = FakeNetworkChecker(isOnline = true),
-        configService: ConfigService = FakeConfigService.success(successResponse(AppConstants.MOCK_WEBVIEW_URL)),
+        networkStatusProvider: NetworkStatusProvider = FakeNetworkStatusProvider(isOnline = true),
+        configProvider: ConfigProvider = FakeConfigProvider.success(successResult(AppConstants.MOCK_WEBVIEW_URL)),
+        attributionProvider: AttributionProvider = FakeAttributionProvider(),
+        pushTokenProvider: PushTokenProvider = FakePushTokenProvider(),
         currentEpochSeconds: () -> Long = { 1_000L }
     ): AppStartupController {
         return AppStartupController(
             storage = storage,
-            networkChecker = networkChecker,
-            attributionService = FakeAttributionService(),
-            pushService = FakePushService(),
-            configService = configService,
+            networkStatusProvider = networkStatusProvider,
+            attributionProvider = attributionProvider,
+            pushTokenProvider = pushTokenProvider,
+            configProvider = configProvider,
             deviceDataProvider = FakeDeviceDataProvider(),
             currentEpochSeconds = currentEpochSeconds
         )
@@ -208,12 +328,11 @@ class AppStartupControllerTest {
     private companion object {
         const val CACHED_WEBVIEW_URL = "https://web.team-s.club/cached"
         const val THREE_DAYS_SECONDS = 259_200L
+        const val REAL_APPS_FLYER_UID = "1778154434343-9031619618851208459"
 
-        fun successResponse(url: String): ConfigResponse {
-            return ConfigResponse(
-                ok = true,
+        fun successResult(url: String): ConfigFetchResult {
+            return ConfigFetchResult.Success(
                 url = url,
-                message = null,
                 expires = 1_893_456_000
             )
         }
@@ -223,13 +342,15 @@ class AppStartupControllerTest {
 private class InMemoryAppStorage(
     initialMode: AppMode = AppMode.UNKNOWN,
     initialLastUrl: String? = null
-) : StartupStorage {
+) : StartupStateRepository {
     override var appMode: AppMode = initialMode
     override var lastWebViewUrl: String? = initialLastUrl
     override var pushPromptDeclinedAtSeconds: Long = 0L
     override var pushPermissionGranted: Boolean = false
     override var mockConfigScenario: MockConfigScenario = MockConfigScenario.SUCCESS_WEBVIEW
     override var configProviderMode: ConfigProviderMode = ConfigProviderMode.MOCK
+    override var attributionProviderMode: AttributionProviderMode = AttributionProviderMode.MOCK
+    override var pushTokenProviderMode: PushTokenProviderMode = PushTokenProviderMode.MOCK
 
     override fun resetLocalState() {
         appMode = AppMode.UNKNOWN
@@ -239,53 +360,51 @@ private class InMemoryAppStorage(
     }
 }
 
-private class FakeNetworkChecker(
+private class FakeNetworkStatusProvider(
     private val isOnline: Boolean
-) : NetworkChecker {
+) : NetworkStatusProvider {
     override fun isOnline(): Boolean = isOnline
 }
 
-private class FakeAttributionService : AttributionService {
+private class FakeAttributionProvider(
+    private val values: Map<String, Any?> = mapOf("af_status" to "Non-organic")
+) : AttributionProvider {
     override suspend fun getConversionData(): AttributionData {
-        return AttributionData(values = mapOf("af_status" to "Non-organic"))
+        return AttributionData(values = values)
     }
 }
 
-private class FakePushService : PushService {
+private class FakePushTokenProvider : PushTokenProvider {
     override suspend fun getPushDataOrNull(): PushData {
         return PushData(
             pushToken = "token",
             firebaseProjectId = "project"
         )
     }
-
-    override suspend fun requestNotificationPermission(activity: Activity): Boolean {
-        return true
-    }
 }
 
-private class FakeConfigService(
-    private val result: Result<ConfigResponse>
-) : ConfigService {
+private class FakeConfigProvider(
+    private val result: Result<ConfigFetchResult>
+) : ConfigProvider {
     var requestCount: Int = 0
         private set
 
-    override suspend fun requestConfig(
+    override suspend fun fetchConfig(
         attributionData: AttributionData,
         pushData: PushData?,
         deviceData: Map<String, Any?>
-    ): ConfigResponse {
+    ): ConfigFetchResult {
         requestCount += 1
         return result.getOrThrow()
     }
 
     companion object {
-        fun success(response: ConfigResponse): FakeConfigService {
-            return FakeConfigService(Result.success(response))
+        fun success(response: ConfigFetchResult): FakeConfigProvider {
+            return FakeConfigProvider(Result.success(response))
         }
 
-        fun failure(throwable: Throwable): FakeConfigService {
-            return FakeConfigService(Result.failure(throwable))
+        fun failure(throwable: Throwable): FakeConfigProvider {
+            return FakeConfigProvider(Result.failure(throwable))
         }
     }
 }
@@ -294,8 +413,10 @@ private class FakeDeviceDataProvider : DeviceDataProvider {
     override fun getDeviceData(): Map<String, Any?> {
         return mapOf(
             "bundle_id" to AppConstants.APPLICATION_ID,
+            "application_id" to AppConstants.APPLICATION_ID,
             "store_id" to AppConstants.APPLICATION_ID,
             "os" to "Android",
+            "platform" to "Android",
             "locale" to "en-US"
         )
     }

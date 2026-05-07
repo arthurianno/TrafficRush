@@ -82,6 +82,10 @@ RUN_REAL_CONFIG_TEST=true ./gradlew :app:testDebugUnitTest
 ## Known TODOs Before Release
 
 - [ ] Replace MockAttributionService / MockPushService with real services in release (already done via BuildConfig.DEBUG check).
+- [ ] P3 architecture hardening: move mock providers, debug intents, and DebugPanel wiring from `main` to `src/debug` to keep release source surface smaller.
+- [ ] P3 release hardening: enable release shrink/obfuscation after validating AppsFlyer/Firebase/config behavior with keep rules.
+- [ ] P3 WebView hardening: `WEBVIEW_HOST_ALLOWLIST` is documented in `WebViewScreen`; keep `ENFORCE_WEBVIEW_HOST_ALLOWLIST=false` until remote config confirms whether campaign/partner domains may be returned.
+- [ ] Push rich image payloads are detected and logged, but BigPictureStyle/image download rendering is not implemented yet.
 - [ ] Verify AppsFlyer dev key in AppConstants.APPSFLYER_DEV_KEY.
 - [ ] Verify Firebase project config in google-services.json matches AppConstants.FIREBASE_PROJECT_ID.
 - [ ] Review CONFIG_URL endpoint response format before going live.

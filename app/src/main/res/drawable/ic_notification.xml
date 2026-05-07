@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome notification icon: Android requires single-color (white) icons for push notifications.
+     Using ic_launcher_foreground (colored) as notification icon causes gray box on Android 5+. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Bell body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,2C7.586,2 4,5.586 4,10v6l-2,2v1h20v-1l-2,-2v-6C20,5.586 16.414,2 12,2Z"/>
+    <!-- Bell clapper -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,22c1.105,0 2,-0.895 2,-2h-4c0,1.105 0.895,2 2,2Z"/>
+</vector>

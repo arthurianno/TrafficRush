@@ -15,17 +15,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -61,8 +68,11 @@ fun LoadingScreen(modifier: Modifier = Modifier) {
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
-                    .fillMaxWidth(LOADING_LOGO_WIDTH_FRACTION)
-                    .heightIn(max = LOADING_LOGO_MAX_HEIGHT)
+                    .offset(0.dp, (-80).dp)
+                    .size(
+                    width = LOADING_LOGO_WIDTH,
+                    height = LOADING_LOGO_HEIGHT
+                )
             )
             Spacer(modifier = Modifier.height(LOADING_LOGO_SPINNER_GAP))
             CircularProgressIndicator(
@@ -96,7 +106,7 @@ fun NoInternetScreen(
             verticalArrangement = Arrangement.Center
         ) {
             Image(
-                painter = painterResource(id = R.drawable.chicken_character),
+                painter = painterResource(id = R.drawable.chicken_char_full),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
@@ -130,6 +140,81 @@ fun NoInternetScreen(
 
 @Composable
 fun FanticScreen(modifier: Modifier = Modifier) {
+    var showSettingsDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    if (showSettingsDialog) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showSettingsDialog = false }
+        ) {
+            Box(
+                modifier = Modifier
+                    .testTag("SETTINGS_DIALOG")
+                    .widthIn(max = 360.dp)
+                    .fillMaxWidth(0.9f)
+                    .systemBarsPadding()
+                    .background(
+                        color = Color(0xEE1A2F20),
+                        shape = RoundedCornerShape(28.dp)
+                    )
+                    .border(
+                        border = BorderStroke(1.dp, Color(0x44FFFFFF)),
+                        shape = RoundedCornerShape(28.dp)
+                    )
+                    .padding(24.dp)
+            ) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "SETTINGS",
+                        color = Color(0xFFFFF0A0),
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    SettingsButton(
+                        text = "Privacy Policy",
+                        onClick = {
+                            android.util.Log.d("FanticScreen", "Privacy link opened")
+                            val intent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW, 
+                                android.net.Uri.parse("https://traficruush.com/privacy-policy.html")
+                            )
+                            context.startActivity(intent)
+                        },
+                        modifier = Modifier.testTag("SETTINGS_PRIVACY_BUTTON")
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    SettingsButton(
+                        text = "Support",
+                        onClick = {
+                            android.util.Log.d("FanticScreen", "Support link opened")
+                            val intent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW, 
+                                android.net.Uri.parse("https://traficruush.com/support.html")
+                            )
+                            context.startActivity(intent)
+                        },
+                        modifier = Modifier.testTag("SETTINGS_SUPPORT_BUTTON")
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    SettingsButton(
+                        text = "Close",
+                        onClick = { showSettingsDialog = false },
+                        isSecondary = true,
+                        modifier = Modifier.testTag("SETTINGS_CLOSE_BUTTON")
+                    )
+                }
+            }
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -150,13 +235,18 @@ fun FanticScreen(modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TopIconButton(resId = R.drawable.btn_settings, contentDescription = "Settings")
+            TopIconButton(
+                resId = R.drawable.btn_settings, 
+                contentDescription = "Settings",
+                onClick = { showSettingsDialog = true }
+            )
             TopIconButton(resId = R.drawable.btn_home, contentDescription = "Home")
         }
 
         Column(
             modifier = Modifier
                 .align(Alignment.Center)
+                .offset(y = FANTIC_CONTENT_OFFSET_Y)
                 .fillMaxWidth()
                 .systemBarsPadding()
                 .padding(horizontal = FANTIC_CONTENT_H_PADDING),
@@ -167,27 +257,40 @@ fun FanticScreen(modifier: Modifier = Modifier) {
                 painter = painterResource(id = R.drawable.logo_egg_flip),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxWidth(FANTIC_LOGO_WIDTH_FRACTION)
-                    .heightIn(max = FANTIC_LOGO_MAX_HEIGHT)
+                modifier = Modifier.size(
+                    width = FANTIC_LOGO_WIDTH,
+                    height = FANTIC_LOGO_HEIGHT
+            )
             )
             Spacer(modifier = Modifier.height(FANTIC_LOGO_BUTTON_GAP))
             GameMenuButton(
                 resId = R.drawable.btn_start,
                 contentDescription = "Start",
-                testTag = UiTestTags.FANTIC_START
+                testTag = UiTestTags.FANTIC_START,
+                modifier = Modifier.size(
+                    width = FANTIC_START_BUTTON_WIDTH,
+                    height = FANTIC_START_BUTTON_HEIGHT
+                )
             )
             Spacer(modifier = Modifier.height(FANTIC_BUTTON_GAP))
             GameMenuButton(
                 resId = R.drawable.btn_levels,
                 contentDescription = "Levels",
-                testTag = UiTestTags.FANTIC_LEVELS
+                testTag = UiTestTags.FANTIC_LEVELS,
+                modifier = Modifier.size(
+                    width = FANTIC_LEVELS_BUTTON_WIDTH,
+                    height = FANTIC_LEVELS_BUTTON_HEIGHT
+                )
             )
             Spacer(modifier = Modifier.height(FANTIC_BUTTON_GAP))
             GameMenuButton(
                 resId = R.drawable.btn_scores,
                 contentDescription = "Scores",
-                testTag = UiTestTags.FANTIC_SCORES
+                testTag = UiTestTags.FANTIC_SCORES,
+                modifier = Modifier.size(
+                    width = FANTIC_SCORES_BUTTON_WIDTH,
+                    height = FANTIC_SCORES_BUTTON_HEIGHT
+                )
             )
         }
     }
@@ -331,5 +434,32 @@ private fun GameButton(
         )
     ) {
         Text(text = text, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun SettingsButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    isSecondary: Boolean = false
+) {
+    val containerColor = if (isSecondary) Color(0x33FFFFFF) else Color(0xFFFDCB35)
+    val contentColor = if (isSecondary) Color.White else Color(0xFF5D3800)
+    val borderColor = if (isSecondary) Color(0x66FFFFFF) else Color(0xFFFFFFFF)
+
+    Button(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(52.dp),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, borderColor),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = containerColor,
+            contentColor = contentColor
+        )
+    ) {
+        Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
     }
 }

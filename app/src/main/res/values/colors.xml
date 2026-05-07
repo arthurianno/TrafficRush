@@ -21,4 +21,6 @@
     <!-- TODO: replace with Figma values. -->
     <color name="game_background_bottom">#081109</color>
     <color name="debug_click_zone_overlay">#66FF3B30</color>
+    <!-- White tint for monochrome notification icon (required by Android) -->
+    <color name="notification_icon_color">#FFFFFF</color>
 </resources>

@@ -1,6 +1,9 @@
 package com.games.playNewAdventure.ui
 
 import android.app.Activity
+import android.net.Uri
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -15,13 +18,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.games.playNewAdventure.BuildConfig
 import com.games.playNewAdventure.startup.AppStartupController
-import com.games.playNewAdventure.startup.StartupResult
+import com.games.playNewAdventure.startup.domain.StartupResult
 import kotlinx.coroutines.launch
 
 @Composable
 fun StartupHost(
     activity: Activity,
     startupController: AppStartupController,
+    onPushPermissionAccepted: (onComplete: () -> Unit) -> Unit,
+    initialWebViewUrl: String? = null,
+    onShowWebFileChooser: (
+        ValueCallback<Array<Uri>>,
+        WebChromeClient.FileChooserParams
+    ) -> Boolean = { _, _ -> false },
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -36,8 +45,14 @@ fun StartupHost(
         debugSnapshot = startupController.debugSnapshot()
     }
 
-    LaunchedEffect(startupController) {
-        restartFlow()
+    LaunchedEffect(startupController, initialWebViewUrl) {
+        if (initialWebViewUrl.isNullOrBlank()) {
+            restartFlow()
+        } else {
+            currentWebViewUrl = initialWebViewUrl
+            screen = StartupScreen.WebView(initialWebViewUrl)
+            debugSnapshot = startupController.debugSnapshot()
+        }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -56,8 +71,7 @@ fun StartupHost(
             is StartupScreen.PushPermission ->
                 PushPermissionScreen(
                     onAllowClick = {
-                        scope.launch {
-                            startupController.requestPushPermission(activity)
+                        onPushPermissionAccepted {
                             debugSnapshot = startupController.debugSnapshot()
                             screen = StartupScreen.WebView(current.url)
                         }
@@ -73,6 +87,7 @@ fun StartupHost(
                 WebViewScreen(
                     url = current.url,
                     activity = activity,
+                    onShowFileChooser = onShowWebFileChooser,
                     onCurrentUrlChanged = { currentWebViewUrl = it }
                 )
         }
@@ -81,6 +96,12 @@ fun StartupHost(
             DebugPanel(
                 snapshot = debugSnapshot,
                 currentWebViewUrl = currentWebViewUrl,
+                onRefreshDiagnostics = {
+                    scope.launch {
+                        startupController.refreshDebugDiagnostics()
+                        debugSnapshot = startupController.debugSnapshot()
+                    }
+                },
                 onScenarioSelected = {
                     startupController.setMockConfigScenario(it)
                     debugSnapshot = startupController.debugSnapshot()
@@ -88,6 +109,20 @@ fun StartupHost(
                 onConfigProviderModeSelected = {
                     startupController.setConfigProviderMode(it)
                     debugSnapshot = startupController.debugSnapshot()
+                },
+                onAttributionProviderModeSelected = {
+                    startupController.setAttributionProviderMode(it)
+                    scope.launch {
+                        startupController.refreshDebugDiagnostics()
+                        debugSnapshot = startupController.debugSnapshot()
+                    }
+                },
+                onPushTokenProviderModeSelected = {
+                    startupController.setPushTokenProviderMode(it)
+                    scope.launch {
+                        startupController.refreshDebugDiagnostics()
+                        debugSnapshot = startupController.debugSnapshot()
+                    }
                 },
                 onResetStateClick = {
                     startupController.resetLocalState()
@@ -99,7 +134,7 @@ fun StartupHost(
                 },
                 onRestartFlowClick = { scope.launch { restartFlow() } },
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
+                    .align(Alignment.TopCenter)
                     .systemBarsPadding()
             )
         }

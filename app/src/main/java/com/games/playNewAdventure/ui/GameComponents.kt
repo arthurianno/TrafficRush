@@ -86,7 +86,8 @@ internal fun BoxScope.DecoImage(
 internal fun TopIconButton(
     @DrawableRes resId: Int,
     contentDescription: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     Image(
@@ -98,7 +99,7 @@ internal fun TopIconButton(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = {
+                onClick = onClick ?: {
                     Toast.makeText(context, R.string.coming_soon, Toast.LENGTH_SHORT).show()
                 }
             )
@@ -113,13 +114,12 @@ internal fun GameMenuButton(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+
     Image(
         painter = painterResource(id = resId),
         contentDescription = contentDescription,
         contentScale = ContentScale.Fit,
         modifier = modifier
-            .fillMaxWidth(FANTIC_BUTTON_WIDTH_FRACTION)
-            .heightIn(min = FANTIC_BUTTON_MIN_HEIGHT, max = FANTIC_BUTTON_MAX_HEIGHT)
             .testTag(testTag)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },

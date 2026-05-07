@@ -1,25 +1,27 @@
 package com.games.playNewAdventure
 
-import android.app.Activity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import com.games.playNewAdventure.data.StartupStorage
-import com.games.playNewAdventure.service.AttributionService
-import com.games.playNewAdventure.service.ConfigService
-import com.games.playNewAdventure.service.DeviceDataProvider
-import com.games.playNewAdventure.service.NetworkChecker
-import com.games.playNewAdventure.service.PushService
-import com.games.playNewAdventure.startup.AppMode
 import com.games.playNewAdventure.startup.AppStartupController
-import com.games.playNewAdventure.startup.AttributionData
-import com.games.playNewAdventure.startup.ConfigProviderMode
-import com.games.playNewAdventure.startup.ConfigResponse
-import com.games.playNewAdventure.startup.MockConfigScenario
-import com.games.playNewAdventure.startup.PushData
+import com.games.playNewAdventure.startup.domain.AppMode
+import com.games.playNewAdventure.startup.domain.AttributionData
+import com.games.playNewAdventure.startup.domain.AttributionProvider
+import com.games.playNewAdventure.startup.domain.AttributionProviderMode
+import com.games.playNewAdventure.startup.domain.ConfigFetchResult
+import com.games.playNewAdventure.startup.domain.ConfigProvider
+import com.games.playNewAdventure.startup.domain.ConfigProviderMode
+import com.games.playNewAdventure.startup.domain.DeviceDataProvider
+import com.games.playNewAdventure.startup.domain.MockConfigScenario
+import com.games.playNewAdventure.startup.domain.NetworkStatusProvider
+import com.games.playNewAdventure.startup.domain.PushData
+import com.games.playNewAdventure.startup.domain.PushTokenProvider
+import com.games.playNewAdventure.startup.domain.PushTokenProviderMode
+import com.games.playNewAdventure.startup.domain.StartupStateRepository
 import com.games.playNewAdventure.ui.StartupHost
 import com.games.playNewAdventure.ui.UiTestTags
 import com.games.playNewAdventure.ui.theme.TrafficRushTheme
@@ -37,7 +39,7 @@ class StartupHostComposeTest {
         val storage = InMemoryAppStorage()
         val controller = createController(
             storage = storage,
-            configService = FakeConfigService.success(successResponse(AppConstants.MOCK_WEBVIEW_URL))
+            configProvider = FakeConfigProvider.success(successResult(AppConstants.MOCK_WEBVIEW_URL))
         )
 
         setStartupContent(controller)
@@ -50,7 +52,7 @@ class StartupHostComposeTest {
     @Test
     fun negativeResponseShowsFanticScreen() {
         val controller = createController(
-            configService = FakeConfigService.success(ConfigResponse(false, null, "No data", null))
+            configProvider = FakeConfigProvider.success(ConfigFetchResult.Negative("No data"))
         )
 
         setStartupContent(controller)
@@ -59,17 +61,40 @@ class StartupHostComposeTest {
     }
 
     @Test
-    fun offlineShowsNoInternetAndRetryRestartsFlow() {
-        val networkChecker = MutableNetworkChecker(online = false)
+    fun fanticScreenSettingsOpensDialogWithPrivacyAndSupport() {
         val controller = createController(
-            networkChecker = networkChecker,
-            configService = FakeConfigService.success(successResponse(AppConstants.MOCK_WEBVIEW_URL))
+            configProvider = FakeConfigProvider.success(ConfigFetchResult.Negative("No data"))
+        )
+
+        setStartupContent(controller)
+
+        waitForTag(UiTestTags.FANTIC_SCREEN)
+        
+        composeRule.onNodeWithContentDescription("Settings").performClick()
+        
+        composeRule.waitUntil(timeoutMillis = 2_000) {
+            composeRule.onAllNodesWithTag("SETTINGS_DIALOG", useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+        
+        assertTagExists("SETTINGS_PRIVACY_BUTTON")
+        assertTagExists("SETTINGS_SUPPORT_BUTTON")
+        assertTagExists("SETTINGS_CLOSE_BUTTON")
+    }
+
+    @Test
+    fun offlineShowsNoInternetAndRetryRestartsFlow() {
+        val networkStatusProvider = MutableNetworkStatusProvider(online = false)
+        val controller = createController(
+            networkStatusProvider = networkStatusProvider,
+            configProvider = FakeConfigProvider.success(successResult(AppConstants.MOCK_WEBVIEW_URL))
         )
 
         setStartupContent(controller)
 
         waitForTag(UiTestTags.NO_INTERNET_SCREEN)
-        networkChecker.online = true
+        networkStatusProvider.online = true
         composeRule.onNodeWithTag(UiTestTags.RETRY_BUTTON).performClick()
         waitForTag(UiTestTags.PUSH_PERMISSION_SCREEN)
     }
@@ -82,7 +107,7 @@ class StartupHostComposeTest {
         )
         val controller = createController(
             storage = storage,
-            configService = FakeConfigService.failure(IOException("server error"))
+            configProvider = FakeConfigProvider.failure(IOException("server error"))
         )
 
         setStartupContent(controller)
@@ -102,7 +127,10 @@ class StartupHostComposeTest {
             TrafficRushTheme {
                 StartupHost(
                     activity = composeRule.activity,
-                    startupController = controller
+                    startupController = controller,
+                    onPushPermissionAccepted = {
+                        controller.recordPushPermissionResult(true)
+                    }
                 )
             }
         }
@@ -136,24 +164,22 @@ class StartupHostComposeTest {
 
 private fun createController(
     storage: InMemoryAppStorage = InMemoryAppStorage(),
-    networkChecker: NetworkChecker = MutableNetworkChecker(online = true),
-    configService: ConfigService = FakeConfigService.success(successResponse(AppConstants.MOCK_WEBVIEW_URL))
+    networkStatusProvider: NetworkStatusProvider = MutableNetworkStatusProvider(online = true),
+    configProvider: ConfigProvider = FakeConfigProvider.success(successResult(AppConstants.MOCK_WEBVIEW_URL))
 ): AppStartupController {
     return AppStartupController(
         storage = storage,
-        networkChecker = networkChecker,
-        attributionService = FakeAttributionService(),
-        pushService = FakePushService(),
-        configService = configService,
+        networkStatusProvider = networkStatusProvider,
+        attributionProvider = FakeAttributionProvider(),
+        pushTokenProvider = FakePushTokenProvider(),
+        configProvider = configProvider,
         deviceDataProvider = FakeDeviceDataProvider()
     )
 }
 
-private fun successResponse(url: String): ConfigResponse {
-    return ConfigResponse(
-        ok = true,
+private fun successResult(url: String): ConfigFetchResult {
+    return ConfigFetchResult.Success(
         url = url,
-        message = null,
         expires = 1_893_456_000
     )
 }
@@ -161,13 +187,15 @@ private fun successResponse(url: String): ConfigResponse {
 private class InMemoryAppStorage(
     initialMode: AppMode = AppMode.UNKNOWN,
     initialLastUrl: String? = null
-) : StartupStorage {
+) : StartupStateRepository {
     override var appMode: AppMode = initialMode
     override var lastWebViewUrl: String? = initialLastUrl
     override var pushPromptDeclinedAtSeconds: Long = 0L
     override var pushPermissionGranted: Boolean = false
     override var mockConfigScenario: MockConfigScenario = MockConfigScenario.SUCCESS_WEBVIEW
     override var configProviderMode: ConfigProviderMode = ConfigProviderMode.MOCK
+    override var attributionProviderMode: AttributionProviderMode = AttributionProviderMode.MOCK
+    override var pushTokenProviderMode: PushTokenProviderMode = PushTokenProviderMode.MOCK
 
     override fun resetLocalState() {
         appMode = AppMode.UNKNOWN
@@ -177,49 +205,45 @@ private class InMemoryAppStorage(
     }
 }
 
-private class MutableNetworkChecker(
+private class MutableNetworkStatusProvider(
     var online: Boolean
-) : NetworkChecker {
+) : NetworkStatusProvider {
     override fun isOnline(): Boolean = online
 }
 
-private class FakeAttributionService : AttributionService {
+private class FakeAttributionProvider : AttributionProvider {
     override suspend fun getConversionData(): AttributionData {
         return AttributionData(values = mapOf("af_status" to "Non-organic"))
     }
 }
 
-private class FakePushService : PushService {
+private class FakePushTokenProvider : PushTokenProvider {
     override suspend fun getPushDataOrNull(): PushData {
         return PushData(
             pushToken = "token",
             firebaseProjectId = "project"
         )
     }
-
-    override suspend fun requestNotificationPermission(activity: Activity): Boolean {
-        return true
-    }
 }
 
-private class FakeConfigService(
-    private val result: Result<ConfigResponse>
-) : ConfigService {
-    override suspend fun requestConfig(
+private class FakeConfigProvider(
+    private val result: Result<ConfigFetchResult>
+) : ConfigProvider {
+    override suspend fun fetchConfig(
         attributionData: AttributionData,
         pushData: PushData?,
         deviceData: Map<String, Any?>
-    ): ConfigResponse {
+    ): ConfigFetchResult {
         return result.getOrThrow()
     }
 
     companion object {
-        fun success(response: ConfigResponse): FakeConfigService {
-            return FakeConfigService(Result.success(response))
+        fun success(response: ConfigFetchResult): FakeConfigProvider {
+            return FakeConfigProvider(Result.success(response))
         }
 
-        fun failure(throwable: Throwable): FakeConfigService {
-            return FakeConfigService(Result.failure(throwable))
+        fun failure(throwable: Throwable): FakeConfigProvider {
+            return FakeConfigProvider(Result.failure(throwable))
         }
     }
 }
@@ -228,8 +252,10 @@ private class FakeDeviceDataProvider : DeviceDataProvider {
     override fun getDeviceData(): Map<String, Any?> {
         return mapOf(
             "bundle_id" to AppConstants.APPLICATION_ID,
+            "application_id" to AppConstants.APPLICATION_ID,
             "store_id" to AppConstants.APPLICATION_ID,
             "os" to "Android",
+            "platform" to "Android",
             "locale" to "en-US"
         )
     }

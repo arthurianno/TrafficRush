@@ -3,11 +3,14 @@ package com.games.playNewAdventure.data
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
-import com.games.playNewAdventure.startup.AppMode
-import com.games.playNewAdventure.startup.ConfigProviderMode
-import com.games.playNewAdventure.startup.MockConfigScenario
+import com.games.playNewAdventure.startup.domain.AppMode
+import com.games.playNewAdventure.startup.domain.AttributionProviderMode
+import com.games.playNewAdventure.startup.domain.ConfigProviderMode
+import com.games.playNewAdventure.startup.domain.MockConfigScenario
+import com.games.playNewAdventure.startup.domain.PushTokenProviderMode
+import com.games.playNewAdventure.startup.domain.StartupStateRepository
 
-class AppStorage(context: Context) : StartupStorage {
+class AppStorage(context: Context) : StartupStateRepository {
     private val preferences: SharedPreferences = context.getSharedPreferences(
         STORAGE_NAME,
         Context.MODE_PRIVATE
@@ -71,6 +74,26 @@ class AppStorage(context: Context) : StartupStorage {
             }
         }
 
+    override var attributionProviderMode: AttributionProviderMode
+        get() = preferences.getString(KEY_ATTRIBUTION_PROVIDER_MODE, null)
+            ?.let { storedValue -> runCatching { AttributionProviderMode.valueOf(storedValue) }.getOrNull() }
+            ?: AttributionProviderMode.MOCK
+        set(value) {
+            preferences.edit {
+                putString(KEY_ATTRIBUTION_PROVIDER_MODE, value.name)
+            }
+        }
+
+    override var pushTokenProviderMode: PushTokenProviderMode
+        get() = preferences.getString(KEY_PUSH_TOKEN_PROVIDER_MODE, null)
+            ?.let { storedValue -> runCatching { PushTokenProviderMode.valueOf(storedValue) }.getOrNull() }
+            ?: PushTokenProviderMode.MOCK
+        set(value) {
+            preferences.edit {
+                putString(KEY_PUSH_TOKEN_PROVIDER_MODE, value.name)
+            }
+        }
+
     override fun resetLocalState() {
         preferences.edit {
             remove(KEY_APP_MODE)
@@ -88,5 +111,7 @@ class AppStorage(context: Context) : StartupStorage {
         const val KEY_PUSH_PERMISSION_GRANTED = "push_permission_granted"
         const val KEY_MOCK_CONFIG_SCENARIO = "mock_config_scenario"
         const val KEY_CONFIG_PROVIDER_MODE = "config_provider_mode"
+        const val KEY_ATTRIBUTION_PROVIDER_MODE = "attribution_provider_mode"
+        const val KEY_PUSH_TOKEN_PROVIDER_MODE = "push_token_provider_mode"
     }
 }

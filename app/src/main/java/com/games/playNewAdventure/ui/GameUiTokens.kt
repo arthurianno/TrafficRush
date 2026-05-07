@@ -12,23 +12,33 @@ internal val BOTTOM_GRADIENT_ALPHA  = 0xD8   // ~85 % opaque at the very bottom
 
 // ─── LoadingScreen ───────────────────────────────────────────────────────────
 
-internal val LOADING_LOGO_WIDTH_FRACTION = 0.72f
-internal val LOADING_LOGO_MAX_HEIGHT     = 200.dp
-internal val LOADING_LOGO_SPINNER_GAP    = 36.dp
+internal val LOADING_LOGO_WIDTH = 295.dp
+internal val LOADING_LOGO_HEIGHT = 305.dp
+
+internal val LOADING_LOGO_SPINNER_GAP    = 150.dp
 internal val LOADING_SPINNER_STROKE      = 3.dp
 
 // ─── FanticScreen ────────────────────────────────────────────────────────────
 
 internal val FANTIC_TOP_BAR_H_PADDING    = 20.dp
+
+internal val FANTIC_LOGO_WIDTH = 450.dp
+internal val FANTIC_LOGO_HEIGHT = 280.dp
+
+internal val FANTIC_START_BUTTON_WIDTH = 300.dp
+internal val FANTIC_START_BUTTON_HEIGHT = 82.dp
+
+internal val FANTIC_LEVELS_BUTTON_WIDTH = 300.dp
+internal val FANTIC_LEVELS_BUTTON_HEIGHT = 82.dp
+
+internal val FANTIC_SCORES_BUTTON_WIDTH = 300.dp
+internal val FANTIC_SCORES_BUTTON_HEIGHT = 82.dp
 internal val FANTIC_TOP_BAR_V_PADDING    = 12.dp
 internal val FANTIC_TOP_ICON_SIZE        = 56.dp
 internal val FANTIC_CONTENT_H_PADDING    = 32.dp
-internal val FANTIC_LOGO_WIDTH_FRACTION  = 0.90f
-internal val FANTIC_LOGO_MAX_HEIGHT      = 180.dp
+
+internal val FANTIC_CONTENT_OFFSET_Y = 20.dp
 internal val FANTIC_LOGO_BUTTON_GAP      = 40.dp
-internal val FANTIC_BUTTON_WIDTH_FRACTION= 0.82f
-internal val FANTIC_BUTTON_MIN_HEIGHT    = 56.dp
-internal val FANTIC_BUTTON_MAX_HEIGHT    = 80.dp
 internal val FANTIC_BUTTON_GAP           = 20.dp
 
 // ─── PushPermissionScreen — decorative elements ───────────────────────────────

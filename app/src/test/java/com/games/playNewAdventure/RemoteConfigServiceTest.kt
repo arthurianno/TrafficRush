@@ -1,15 +1,14 @@
 package com.games.playNewAdventure
 
 import com.games.playNewAdventure.service.RemoteConfigService
-import com.games.playNewAdventure.startup.AttributionData
-import com.games.playNewAdventure.startup.PushData
-import java.io.IOException
-import java.net.SocketTimeoutException
+import com.games.playNewAdventure.startup.domain.AttributionData
+import com.games.playNewAdventure.startup.domain.ConfigDebugResultType
+import com.games.playNewAdventure.startup.domain.ConfigFetchResult
+import com.games.playNewAdventure.startup.domain.PushData
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
-import org.json.JSONException
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -50,13 +49,15 @@ class RemoteConfigServiceTest {
                 )
         )
 
-        val response = createService().requestConfig(
+        val service = createService()
+        val response = service.fetchConfig(
             attributionData = fakeAttributionData(),
             pushData = fakePushData(),
             deviceData = fakeDeviceData()
         )
 
-        assertTrue(response.ok)
+        assertTrue(response is ConfigFetchResult.Success)
+        response as ConfigFetchResult.Success
         assertEquals("https://web.team-s.club/", response.url)
         assertEquals(1_893_456_000L, response.expires)
 
@@ -69,10 +70,23 @@ class RemoteConfigServiceTest {
         assertEquals("Non-organic", requestJson.getString("af_status"))
         assertEquals("token", requestJson.getString("push_token"))
         assertEquals(AppConstants.APPLICATION_ID, requestJson.getString("bundle_id"))
+        assertEquals(AppConstants.APPLICATION_ID, requestJson.getString("application_id"))
+        assertEquals("Android", requestJson.getString("platform"))
+
+        val diagnostics = service.lastConfigDebugSnapshot()
+        assertEquals(200, diagnostics?.httpStatus)
+        assertEquals(ConfigDebugResultType.SUCCESS, diagnostics?.resultType)
+        assertEquals(true, diagnostics?.ok)
+        assertEquals("https://web.team-s.club/", diagnostics?.url)
+        assertTrue(diagnostics?.requestContainedAfId == true)
+        assertTrue(diagnostics?.requestContainedPushToken == true)
+        assertTrue(diagnostics?.requestContainedFirebaseProjectId == true)
+        assertEquals("Non-organic", diagnostics?.requestAfStatus)
+        assertEquals("deep_link_test", diagnostics?.requestDeepLinkValue)
     }
 
     @Test
-    fun requestConfigWithHttpErrorThrowsIOException() = runBlocking {
+    fun requestConfigWith404NoDataReturnsNegative() = runBlocking {
         server.enqueue(
             MockResponse()
                 .setResponseCode(404)
@@ -80,19 +94,44 @@ class RemoteConfigServiceTest {
                 .setBody("""{"ok":false,"message":"No data"}""")
         )
 
-        val failure = runCatching {
-            createService().requestConfig(
-                attributionData = fakeAttributionData(),
-                pushData = fakePushData(),
-                deviceData = fakeDeviceData()
-            )
-        }.exceptionOrNull()
+        val service = createService()
+        val response = service.fetchConfig(
+            attributionData = fakeAttributionData(),
+            pushData = fakePushData(),
+            deviceData = fakeDeviceData()
+        )
 
-        assertTrue(failure is IOException)
+        assertTrue(response is ConfigFetchResult.Negative)
+        response as ConfigFetchResult.Negative
+        assertEquals("No data", response.message)
+
+        val diagnostics = service.lastConfigDebugSnapshot()
+        assertEquals(404, diagnostics?.httpStatus)
+        assertEquals(ConfigDebugResultType.NEGATIVE, diagnostics?.resultType)
+        assertEquals(false, diagnostics?.ok)
+        assertEquals("No data", diagnostics?.errorMessage)
     }
 
     @Test
-    fun requestConfigWithInvalidJsonThrowsParsingFailure() = runBlocking {
+    fun requestConfigWith5xxReturnsTransientError() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(500)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"ok":false,"message":"Server error"}""")
+        )
+
+        val response = createService().fetchConfig(
+            attributionData = fakeAttributionData(),
+            pushData = fakePushData(),
+            deviceData = fakeDeviceData()
+        )
+
+        assertTrue(response is ConfigFetchResult.TransientError)
+    }
+
+    @Test
+    fun requestConfigWithInvalidJsonReturnsTransientError() = runBlocking {
         server.enqueue(
             MockResponse()
                 .setResponseCode(200)
@@ -100,19 +139,17 @@ class RemoteConfigServiceTest {
                 .setBody("not json")
         )
 
-        val failure = runCatching {
-            createService().requestConfig(
-                attributionData = fakeAttributionData(),
-                pushData = fakePushData(),
-                deviceData = fakeDeviceData()
-            )
-        }.exceptionOrNull()
+        val response = createService().fetchConfig(
+            attributionData = fakeAttributionData(),
+            pushData = fakePushData(),
+            deviceData = fakeDeviceData()
+        )
 
-        assertTrue(failure is JSONException)
+        assertTrue(response is ConfigFetchResult.TransientError)
     }
 
     @Test
-    fun requestConfigWithTimeoutThrowsTimeoutFailure() = runBlocking {
+    fun requestConfigWithTimeoutReturnsTransientError() = runBlocking {
         server.enqueue(
             MockResponse()
                 .setResponseCode(200)
@@ -121,15 +158,13 @@ class RemoteConfigServiceTest {
                 .setBodyDelay(500, TimeUnit.MILLISECONDS)
         )
 
-        val failure = runCatching {
-            createService(readTimeoutMs = 100).requestConfig(
-                attributionData = fakeAttributionData(),
-                pushData = fakePushData(),
-                deviceData = fakeDeviceData()
-            )
-        }.exceptionOrNull()
+        val response = createService(readTimeoutMs = 100).fetchConfig(
+            attributionData = fakeAttributionData(),
+            pushData = fakePushData(),
+            deviceData = fakeDeviceData()
+        )
 
-        assertTrue(failure is SocketTimeoutException)
+        assertTrue(response is ConfigFetchResult.TransientError)
     }
 
     private fun createService(readTimeoutMs: Int = 2_000): RemoteConfigService {
@@ -149,28 +184,21 @@ class RemoteConfigServiceRealIntegrationTest {
             shouldRunRealConfigTest()
         )
 
-        val result = runCatching {
-            RemoteConfigService(connectTimeoutMs = 5_000, readTimeoutMs = 5_000)
-                .requestConfig(
-                    attributionData = fakeAttributionData(),
-                    pushData = fakePushData(),
-                    deviceData = fakeDeviceData()
-                )
-        }
-
-        result.onSuccess { response ->
-            if (response.ok) {
-                assertFalse(response.url.isNullOrBlank())
-            } else {
-                assertTrue(response.message != null || response.url.isNullOrBlank())
-            }
-        }.onFailure { failure ->
-            assertTrue(
-                "Real config may fail with transport/HTTP errors, but should not fail unexpectedly: $failure",
-                failure is IOException
+        val response = RemoteConfigService(connectTimeoutMs = 5_000, readTimeoutMs = 5_000)
+            .fetchConfig(
+                attributionData = fakeAttributionData(),
+                pushData = fakePushData(),
+                deviceData = fakeDeviceData()
             )
+
+        when (response) {
+            is ConfigFetchResult.Success ->
+                assertFalse(response.url.isBlank())
+            is ConfigFetchResult.Negative ->
+                assertTrue(response.message?.isNotBlank() != false)
+            is ConfigFetchResult.TransientError ->
+                assertTrue(response.reason?.isNotBlank() != false)
         }
-        Unit
     }
 
     private fun shouldRunRealConfigTest(): Boolean {
@@ -187,6 +215,7 @@ private fun fakeAttributionData(): AttributionData {
             "media_source" to "Facebook Ads",
             "af_sub1" to "mock_sub1",
             "af_id" to "mock_af_id_123",
+            "deep_link_value" to "deep_link_test",
             "is_first_launch" to true
         )
     )
@@ -203,8 +232,10 @@ private fun fakePushData(): PushData {
 private fun fakeDeviceData(): Map<String, Any?> {
     return mapOf(
         "bundle_id" to AppConstants.APPLICATION_ID,
+        "application_id" to AppConstants.APPLICATION_ID,
         "store_id" to AppConstants.APPLICATION_ID,
         "os" to "Android",
+        "platform" to "Android",
         "locale" to "en-US"
     )
 }

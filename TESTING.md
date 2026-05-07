@@ -50,6 +50,8 @@ The panel keeps the main controls at the top: `Reset state`, `Restart flow`, `Co
 
 Long `Last URL` and `Current URL` values are truncated by default. Use `Copy` to copy a URL and `Expand` to reveal the full value.
 
+Use `Close` inside the panel, or tap `Debug` again, to collapse the overlay.
+
 Debug builds also accept adb intent extras for smoke testing:
 
 ```bash
@@ -70,6 +72,22 @@ adb shell am start -n com.games.playNewAdventure/.MainActivity \
 Expected: Splash -> Push screen -> Accept/Skip -> WebView.
 
 Expected mock WebView URL: `https://web.team-s.club/`.
+
+Safe area expectations:
+
+- WebView content must start below the status bar/system icons.
+- WebView content must not extend under the navigation bar.
+- Debug button must stay in the safe area and must not cover the top of the web page.
+- Test-site buttons such as `Go to Example.com` are external WebView content and should remain visible only as part of the page.
+- Back behavior must stay unchanged: WebView history uses `goBack()`, and the first page sends the task to background with `moveTaskToBack(true)`.
+
+WebView rendering diagnostics:
+
+- Open Chrome on the desktop and navigate to `chrome://inspect/#devices`.
+- Select the `Traffic Rush` WebView for `com.games.playNewAdventure`.
+- Compare `https://web.team-s.club/` in desktop/mobile Chrome and in the app WebView.
+- Check console output for critical CSS/JS/resource errors.
+- Debug builds log WebView lifecycle, HTTP/resource errors, console messages, and User-Agent under the `TrafficRushWebView` logcat tag.
 
 
 ## F. Fantic
@@ -114,6 +132,19 @@ For the mock success flow, the stored fallback URL should be `https://web.team-s
 
 Expected: Result depends on `https://traficruush.com/config.php`.
 
+Use the `Last Config Response` section in the Debug panel to inspect:
+
+- `HTTP status`
+- `Result`: `Success`, `Negative`, or `TransientError`
+- `ok`
+- `url`
+- `error`
+- whether the request contained `af_id`, `push_token`, and `firebase_project_id`
+- `af_status` and `deep_link_value`
+- the startup decision and reason
+
+If the server returns `Negative`, Fantic is expected. If the request has a transient network/server/parsing error on first launch, NoInternet is expected and Fantic must not be saved. If the server returns `ok=true` with a non-empty `url`, WebView should open and the URL should be saved.
+
 ## J. Push Permission
 
 1. Select `Config MOCK` -> `SUCCESS_WEBVIEW`.
@@ -132,6 +163,30 @@ https://app.appsflyer.com/com.games.playNewAdventure?pid=Test%20Source&c=testsub
 ```
 
 3. Install and launch the app.
+
+## L. AppsFlyer Dev Key vs AppsFlyer UID
+
+- AppsFlyer Dev Key: `TJqxhS6yxVaJvsjJgQ78hZ`. This value is only for SDK initialization.
+- AppsFlyer UID / `af_id`: runtime device/install ID from `AppsFlyerLib.getInstance().getAppsFlyerUID(context)`.
+- Real push test URL must use the runtime UID, not the dev key and not mock values:
+
+```text
+https://web.team-s.club/check_push?af_id=<AppsFlyer UID>
+```
+
+For real push testing in a debug build:
+
+1. Open Debug panel.
+2. Set `Config: REAL`.
+3. Set `Attribution: REAL`.
+4. Set `Push token: REAL`.
+5. Tap `Reset state`.
+6. Tap `Restart flow`.
+7. Accept notification permission.
+8. Wait until `AppsFlyer UID / af_id`, FCM token, notification permission, `af_id sent to config`, and `Push token sent to config` are all ready.
+9. Tap `Copy push URL` and open the copied `https://web.team-s.club/check_push?af_id=<AppsFlyer UID>` link in a browser.
+
+Do not use `mock_af_id_123` for real push testing, and do not leave `Config: MOCK`: mock config does not send the real `af_id` + `push_token` to the server. `Copy push URL` stays disabled for mock IDs, blank UID, `Config: MOCK`, missing FCM token, missing notification permission, or a config request that has not sent the current `af_id` + `push_token`.
 
 ## Real Traffic Rush Values
 

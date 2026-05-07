@@ -1,52 +1,32 @@
 package com.games.playNewAdventure.service
 
-import android.Manifest
-import android.app.Activity
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.os.Build
-import androidx.core.content.ContextCompat
+import android.util.Log
 import com.games.playNewAdventure.AppConstants
-import com.games.playNewAdventure.startup.ConfigProviderMode
-import com.games.playNewAdventure.startup.AttributionData
-import com.games.playNewAdventure.startup.ConfigResponse
-import com.games.playNewAdventure.startup.MockConfigScenario
-import com.games.playNewAdventure.startup.PushData
-import java.io.IOException
-import java.net.SocketTimeoutException
+import com.games.playNewAdventure.BuildConfig
+import com.games.playNewAdventure.startup.domain.AttributionData
+import com.games.playNewAdventure.startup.domain.AttributionProvider
+import com.games.playNewAdventure.startup.domain.AttributionProviderMode
+import com.games.playNewAdventure.startup.domain.ConfigDebugResultType
+import com.games.playNewAdventure.startup.domain.ConfigDebugSnapshot
+import com.games.playNewAdventure.startup.domain.ConfigDiagnosticsProvider
+import com.games.playNewAdventure.startup.domain.ConfigFetchResult
+import com.games.playNewAdventure.startup.domain.ConfigProvider
+import com.games.playNewAdventure.startup.domain.ConfigProviderMode
+import com.games.playNewAdventure.startup.domain.DeviceDataProvider
+import com.games.playNewAdventure.startup.domain.MockConfigScenario
+import com.games.playNewAdventure.startup.domain.NetworkStatusProvider
+import com.games.playNewAdventure.startup.domain.PushData
+import com.games.playNewAdventure.startup.domain.PushTokenProvider
+import com.games.playNewAdventure.startup.domain.PushTokenProviderMode
 import java.util.Locale
 import kotlinx.coroutines.delay
 
-interface AttributionService {
-    suspend fun getConversionData(): AttributionData
-}
-
-interface PushService {
-    suspend fun getPushDataOrNull(): PushData?
-
-    suspend fun requestNotificationPermission(activity: Activity): Boolean
-}
-
-interface ConfigService {
-    suspend fun requestConfig(
-        attributionData: AttributionData,
-        pushData: PushData?,
-        deviceData: Map<String, Any?>
-    ): ConfigResponse
-}
-
-interface NetworkChecker {
-    fun isOnline(): Boolean
-}
-
-interface DeviceDataProvider {
-    fun getDeviceData(): Map<String, Any?>
-}
-
-class MockAttributionService : AttributionService {
+class MockAttributionService : AttributionProvider {
     override suspend fun getConversionData(): AttributionData {
+        logDebug("attribution source MOCK")
         return AttributionData(
             values = mapOf(
                 "af_status" to "Non-organic",
@@ -60,75 +40,90 @@ class MockAttributionService : AttributionService {
     }
 }
 
-class MockPushService : PushService {
+class MockPushService : PushTokenProvider {
     override suspend fun getPushDataOrNull(): PushData {
+        logDebug("push token source MOCK; FCM token available true")
         return PushData(
             pushToken = "mock_push_token_123",
             firebaseProjectId = "mock_firebase_project_id",
             firebaseProjectNumber = AppConstants.FIREBASE_PROJECT_NUMBER
         )
     }
+}
 
-    override suspend fun requestNotificationPermission(activity: Activity): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val alreadyGranted = ContextCompat.checkSelfPermission(
-                activity,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-
-            if (alreadyGranted) {
-                return true
-            }
+class SwitchingAttributionService(
+    private val modeProvider: () -> AttributionProviderMode,
+    private val mockAttributionService: AttributionProvider,
+    private val realAttributionService: AttributionProvider
+) : AttributionProvider {
+    override suspend fun getConversionData(): AttributionData {
+        val mode = modeProvider()
+        logDebug("attribution source $mode")
+        val targetService = when (mode) {
+            AttributionProviderMode.MOCK -> mockAttributionService
+            AttributionProviderMode.REAL -> realAttributionService
         }
-
-        // Real implementation should request POST_NOTIFICATIONS via Activity Result API.
-        delay(MOCK_PERMISSION_DELAY_MS)
-        return true
+        return targetService.getConversionData()
     }
+}
 
-    private companion object {
-        const val MOCK_PERMISSION_DELAY_MS = 250L
+class SwitchingPushTokenService(
+    private val modeProvider: () -> PushTokenProviderMode,
+    private val mockPushService: PushTokenProvider,
+    private val realPushService: PushTokenProvider
+) : PushTokenProvider {
+    override suspend fun getPushDataOrNull(): PushData? {
+        val mode = modeProvider()
+        logDebug("push token source $mode")
+        return when (mode) {
+            PushTokenProviderMode.MOCK -> mockPushService
+            PushTokenProviderMode.REAL -> realPushService
+        }.getPushDataOrNull()
     }
 }
 
 class MockConfigService(
     private val scenarioProvider: () -> MockConfigScenario = { MockConfigScenario.SUCCESS_WEBVIEW }
-) : ConfigService {
-    override suspend fun requestConfig(
+) : ConfigProvider, ConfigDiagnosticsProvider {
+    @Volatile private var lastConfigDebugSnapshot: ConfigDebugSnapshot? = null
+
+    override suspend fun fetchConfig(
         attributionData: AttributionData,
         pushData: PushData?,
         deviceData: Map<String, Any?>
-    ): ConfigResponse {
-        return when (scenarioProvider()) {
-            MockConfigScenario.SUCCESS_WEBVIEW -> ConfigResponse(
-                ok = true,
+    ): ConfigFetchResult {
+        val result = when (scenarioProvider()) {
+            MockConfigScenario.SUCCESS_WEBVIEW -> ConfigFetchResult.Success(
                 url = AppConstants.MOCK_WEBVIEW_URL,
-                message = null,
                 expires = 1_893_456_000
             )
 
-            MockConfigScenario.NEGATIVE_RESPONSE -> ConfigResponse(
-                ok = false,
-                url = null,
-                message = "No data",
-                expires = null
+            MockConfigScenario.NEGATIVE_RESPONSE -> ConfigFetchResult.Negative(
+                message = "No data"
             )
 
-            MockConfigScenario.SERVER_ERROR -> throw IOException("Mock server error")
+            MockConfigScenario.SERVER_ERROR -> ConfigFetchResult.TransientError(
+                reason = "Mock server error"
+            )
 
             MockConfigScenario.TIMEOUT -> {
                 delay(MOCK_TIMEOUT_DELAY_MS)
-                throw SocketTimeoutException("Mock timeout")
+                ConfigFetchResult.TransientError(reason = "Mock timeout")
             }
 
-            MockConfigScenario.EMPTY_URL -> ConfigResponse(
-                ok = true,
-                url = "",
-                message = null,
-                expires = null
+            MockConfigScenario.EMPTY_URL -> ConfigFetchResult.Negative(
+                message = "Empty config URL"
             )
         }
+        lastConfigDebugSnapshot = result.toConfigDebugSnapshot(
+            source = ConfigProviderMode.MOCK,
+            attributionData = attributionData,
+            pushData = pushData
+        )
+        return result
     }
+
+    override fun lastConfigDebugSnapshot(): ConfigDebugSnapshot? = lastConfigDebugSnapshot
 
     private companion object {
         const val MOCK_TIMEOUT_DELAY_MS = 2_000L
@@ -137,28 +132,42 @@ class MockConfigService(
 
 class SwitchingConfigService(
     private val modeProvider: () -> ConfigProviderMode,
-    private val mockConfigService: ConfigService,
-    private val remoteConfigService: ConfigService
-) : ConfigService {
-    override suspend fun requestConfig(
+    private val mockConfigService: ConfigProvider,
+    private val remoteConfigService: ConfigProvider
+) : ConfigProvider, ConfigDiagnosticsProvider {
+    @Volatile private var lastConfigDebugSnapshot: ConfigDebugSnapshot? = null
+
+    override suspend fun fetchConfig(
         attributionData: AttributionData,
         pushData: PushData?,
         deviceData: Map<String, Any?>
-    ): ConfigResponse {
-        val targetService = when (modeProvider()) {
+    ): ConfigFetchResult {
+        val mode = modeProvider()
+        val targetService = when (mode) {
             ConfigProviderMode.MOCK -> mockConfigService
             ConfigProviderMode.REAL -> remoteConfigService
         }
 
-        return targetService.requestConfig(
+        val result = targetService.fetchConfig(
             attributionData = attributionData,
             pushData = pushData,
             deviceData = deviceData
         )
+        lastConfigDebugSnapshot = (targetService as? ConfigDiagnosticsProvider)
+            ?.lastConfigDebugSnapshot()
+            ?.copy(source = mode)
+            ?: result.toConfigDebugSnapshot(
+                source = mode,
+                attributionData = attributionData,
+                pushData = pushData
+            )
+        return result
     }
+
+    override fun lastConfigDebugSnapshot(): ConfigDebugSnapshot? = lastConfigDebugSnapshot
 }
 
-class AndroidNetworkChecker(context: Context) : NetworkChecker {
+class AndroidNetworkChecker(context: Context) : NetworkStatusProvider {
     private val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
 
     override fun isOnline(): Boolean {
@@ -174,9 +183,69 @@ class AndroidDeviceDataProvider : DeviceDataProvider {
     override fun getDeviceData(): Map<String, Any?> {
         return mapOf(
             "bundle_id" to AppConstants.APPLICATION_ID,
+            "application_id" to AppConstants.APPLICATION_ID,
             "store_id" to AppConstants.APPLICATION_ID,
             "os" to "Android",
+            "platform" to "Android",
             "locale" to Locale.getDefault().toLanguageTag()
         )
+    }
+}
+
+private const val STARTUP_SERVICES_LOG_TAG = "StartupServices"
+private const val KEY_AF_ID = "af_id"
+private const val KEY_AF_STATUS = "af_status"
+private const val KEY_DEEP_LINK_VALUE = "deep_link_value"
+
+private fun logDebug(message: String) {
+    if (BuildConfig.DEBUG) {
+        runCatching {
+            Log.d(STARTUP_SERVICES_LOG_TAG, message)
+        }
+    }
+}
+
+private fun ConfigFetchResult.toConfigDebugSnapshot(
+    source: ConfigProviderMode,
+    attributionData: AttributionData,
+    pushData: PushData?,
+    message: String? = null
+): ConfigDebugSnapshot {
+    return ConfigDebugSnapshot(
+        source = source,
+        httpStatus = null,
+        resultType = toDebugResultType(),
+        ok = defaultOkValue(),
+        url = (this as? ConfigFetchResult.Success)?.url,
+        errorMessage = errorMessage() ?: message,
+        requestContainedAfId = attributionData.values[KEY_AF_ID]?.toString()?.isNotBlank() == true,
+        requestContainedPushToken = !pushData?.pushToken.isNullOrBlank(),
+        requestContainedFirebaseProjectId = !pushData?.firebaseProjectId.isNullOrBlank(),
+        requestAfStatus = attributionData.values[KEY_AF_STATUS]?.toString()?.takeIf { it.isNotBlank() },
+        requestDeepLinkValue = attributionData.values[KEY_DEEP_LINK_VALUE]?.toString()?.takeIf { it.isNotBlank() }
+    )
+}
+
+private fun ConfigFetchResult.toDebugResultType(): ConfigDebugResultType {
+    return when (this) {
+        is ConfigFetchResult.Success -> ConfigDebugResultType.SUCCESS
+        is ConfigFetchResult.Negative -> ConfigDebugResultType.NEGATIVE
+        is ConfigFetchResult.TransientError -> ConfigDebugResultType.TRANSIENT_ERROR
+    }
+}
+
+private fun ConfigFetchResult.defaultOkValue(): Boolean? {
+    return when (this) {
+        is ConfigFetchResult.Success -> true
+        is ConfigFetchResult.Negative -> false
+        is ConfigFetchResult.TransientError -> null
+    }
+}
+
+private fun ConfigFetchResult.errorMessage(): String? {
+    return when (this) {
+        is ConfigFetchResult.Success -> null
+        is ConfigFetchResult.Negative -> message
+        is ConfigFetchResult.TransientError -> reason
     }
 }
