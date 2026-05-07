@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.appsflyer.AppsFlyerConversionListener
 import com.appsflyer.AppsFlyerLib
+import com.appsflyer.deeplink.DeepLinkResult
 import com.games.playNewAdventure.AppConstants
 import com.games.playNewAdventure.BuildConfig
 import com.games.playNewAdventure.startup.domain.AttributionData
@@ -64,6 +65,17 @@ class AppsFlyerAttributionService(
 
                 logDebug("AppsFlyer Dev Key configured ${devKey.isNotBlank()}")
                 AppsFlyerLib.getInstance().init(devKey, listener, appContext)
+                AppsFlyerLib.getInstance().subscribeForDeepLink { deepLinkResult ->
+                    if (deepLinkResult.status == DeepLinkResult.Status.FOUND) {
+                        val deepLinkData = mutableMapOf<String, Any?>()
+                        deepLinkResult.deepLink?.clickEvent?.let { json ->
+                            json.keys().forEach { key ->
+                                deepLinkData[key] = json.opt(key)
+                            }
+                        }
+                        cachedConversionData = mergeAttributionData(deepLinkData)
+                    }
+                }
                 AppsFlyerLib.getInstance().start(appContext)
             }
         } ?: emptyMap()

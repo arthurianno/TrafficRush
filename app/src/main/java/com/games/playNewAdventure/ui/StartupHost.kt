@@ -13,6 +13,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,8 +36,9 @@ fun StartupHost(
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
-    var screen by remember { mutableStateOf<StartupScreen>(StartupScreen.Loading) }
-    var currentWebViewUrl by remember { mutableStateOf<String?>(null) }
+    var screen by rememberSaveable(stateSaver = StartupScreenSaver) { mutableStateOf<StartupScreen>(StartupScreen.Loading) }
+    var currentWebViewUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var startupFlowExecuted by rememberSaveable { mutableStateOf(false) }
     var debugSnapshot by remember { mutableStateOf(startupController.debugSnapshot()) }
 
     suspend fun restartFlow() {
@@ -43,15 +46,20 @@ fun StartupHost(
         screen = StartupScreen.Loading
         screen = startupController.resolveStartup().toScreen()
         debugSnapshot = startupController.debugSnapshot()
+        startupFlowExecuted = true
     }
 
     LaunchedEffect(startupController, initialWebViewUrl) {
+        logDebug("StartupHost LaunchedEffect: initialWebViewUrl=$initialWebViewUrl, startupFlowExecuted=$startupFlowExecuted")
         if (initialWebViewUrl.isNullOrBlank()) {
-            restartFlow()
+            if (!startupFlowExecuted) {
+                restartFlow()
+            }
         } else {
             currentWebViewUrl = initialWebViewUrl
             screen = StartupScreen.WebView(initialWebViewUrl)
             debugSnapshot = startupController.debugSnapshot()
+            startupFlowExecuted = true
         }
     }
 
@@ -85,10 +93,13 @@ fun StartupHost(
 
             is StartupScreen.WebView ->
                 WebViewScreen(
-                    url = current.url,
+                    url = currentWebViewUrl ?: current.url,
                     activity = activity,
                     onShowFileChooser = onShowWebFileChooser,
-                    onCurrentUrlChanged = { currentWebViewUrl = it }
+                    onCurrentUrlChanged = { 
+                        logDebug("StartupHost currentWebViewUrl updated: $it")
+                        currentWebViewUrl = it 
+                    }
                 )
         }
 
@@ -156,5 +167,41 @@ private fun StartupResult.toScreen(): StartupScreen = when (this) {
         StartupScreen.PushPermission(url)
     } else {
         StartupScreen.WebView(url)
+    }
+}
+
+private val StartupScreenSaver = Saver<StartupScreen, android.os.Bundle>(
+    save = { screen ->
+        android.os.Bundle().apply {
+            when (screen) {
+                is StartupScreen.Loading -> putString("type", "Loading")
+                is StartupScreen.NoInternet -> putString("type", "NoInternet")
+                is StartupScreen.Fantic -> putString("type", "Fantic")
+                is StartupScreen.PushPermission -> {
+                    putString("type", "PushPermission")
+                    putString("url", screen.url)
+                }
+                is StartupScreen.WebView -> {
+                    putString("type", "WebView")
+                    putString("url", screen.url)
+                }
+            }
+        }
+    },
+    restore = { bundle ->
+        when (bundle.getString("type")) {
+            "Loading" -> StartupScreen.Loading
+            "NoInternet" -> StartupScreen.NoInternet
+            "Fantic" -> StartupScreen.Fantic
+            "PushPermission" -> StartupScreen.PushPermission(bundle.getString("url") ?: "")
+            "WebView" -> StartupScreen.WebView(bundle.getString("url") ?: "")
+            else -> StartupScreen.Loading
+        }
+    }
+)
+
+private fun logDebug(message: String) {
+    if (BuildConfig.DEBUG) {
+        android.util.Log.d("TrafficRushStartupHost", message)
     }
 }

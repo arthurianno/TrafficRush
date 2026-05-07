@@ -37,6 +37,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,7 +82,17 @@ fun WebViewScreen(
 
     val context = LocalContext.current
     var webView by remember { mutableStateOf<WebView?>(null) }
-    var loadedUrl by remember { mutableStateOf<String?>(null) }
+    val webViewStateBundle = rememberSaveable(
+        saver = Saver<android.os.Bundle, android.os.Bundle>(
+            save = { 
+                logDebug("save WebView state called")
+                webView?.saveState(it)
+                it 
+            },
+            restore = { it }
+        )
+    ) { android.os.Bundle() }
+    var loadedUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var showFallbackError by remember { mutableStateOf(false) }
     var fallbackUrl by remember { mutableStateOf<String?>(null) }
 
@@ -173,6 +185,20 @@ fun WebViewScreen(
                                     "code=$code, description=$desc"
                             )
                             
+                            val isUnsupportedScheme = code == WebViewClient.ERROR_UNSUPPORTED_SCHEME || 
+                                                      desc.contains("ERR_UNKNOWN_URL_SCHEME", ignoreCase = true)
+                            if (isUnsupportedScheme) {
+                                view.stopLoading()
+                                if (view.canGoBack()) {
+                                    view.goBack()
+                                }
+                                val requestUrl = request.url
+                                if (requestUrl != null && !requestUrl.isHttpOrHttps()) {
+                                    viewContext.handleUrlOverride(requestUrl)
+                                }
+                                return
+                            }
+
                             val isTooManyRedirects = code == WebViewClient.ERROR_REDIRECT_LOOP || 
                                                      desc.contains("ERR_TOO_MANY_REDIRECTS", ignoreCase = true)
                             
@@ -216,15 +242,25 @@ fun WebViewScreen(
                             return viewContext.handleUrlOverride(uri)
                         }
                     }
-                    loadedUrl = url
-                    onCurrentUrlChanged(url)
-                    loadUrlOrOpenExternally(viewContext, url)
+                    if (!webViewStateBundle.isEmpty) {
+                        logDebug("restore WebView state called.")
+                        restoreState(webViewStateBundle)
+                        val restoredHistoryIndex = copyBackForwardList().currentIndex
+                        logDebug("restored history size: ${copyBackForwardList().size}, index: $restoredHistoryIndex")
+                        logDebug("loadUrl was skipped due to restoreState")
+                    } else {
+                        loadedUrl = url
+                        logDebug("Restoring/Loading initial URL: $url")
+                        onCurrentUrlChanged(url)
+                        loadUrlOrOpenExternally(viewContext, url)
+                    }
                 }
             },
             update = { view ->
                 webView = view
                 if (loadedUrl != url && !showFallbackError) {
                     loadedUrl = url
+                    logDebug("Updating URL due to recomposition: $url")
                     onCurrentUrlChanged(url)
                     view.loadUrlOrOpenExternally(context, url)
                 }
@@ -390,14 +426,40 @@ private fun Context.handleUrlOverride(uri: Uri): Boolean {
         return false
     }
 
-    val intent = Intent(Intent.ACTION_VIEW, uri)
+    val uriString = uri.toString()
+    val intent = if (uriString.startsWith("intent://", ignoreCase = true)) {
+        try {
+            Intent.parseUri(uriString, Intent.URI_INTENT_SCHEME)
+        } catch (e: Exception) {
+            null
+        }
+    } else {
+        Intent(Intent.ACTION_VIEW, uri)
+    }
+
+    if (intent == null) return true
+
     if (this !is Activity) {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
     try {
         startActivity(intent)
+        logDebug("External URL handled successfully: $uri")
     } catch (_: ActivityNotFoundException) {
+        logDebug("ActivityNotFoundException for intent: $uri")
+        val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+        if (fallbackUrl != null) {
+            val fallbackUri = Uri.parse(fallbackUrl)
+            if (fallbackUri.isHttpOrHttps()) {
+                logDebug("Using fallback URL: $fallbackUrl")
+                val fallbackIntent = Intent(Intent.ACTION_VIEW, fallbackUri)
+                if (this !is Activity) {
+                    fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                runCatching { startActivity(fallbackIntent) }
+            }
+        }
         return true
     }
 

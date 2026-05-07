@@ -368,6 +368,23 @@ internal fun DebugPanel(
                         )
                     }
 
+                    if (readyForPushTest) {
+                        Spacer(modifier = Modifier.height(PANEL_GAP / 2))
+                        Text(
+                            text = "Client is ready. If check_push sends nothing, server/Firebase sender side must be checked.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(PANEL_GAP))
+
+                    LastAppsFlyerParamsSection(snapshot = snapshot)
+                    
+                    Spacer(modifier = Modifier.height(PANEL_GAP))
+                    
+                    DeepLinkParamsSection(snapshot = snapshot)
+
                     Spacer(modifier = Modifier.height(PANEL_GAP))
 
                     Row(
@@ -476,6 +493,58 @@ private fun com.games.playNewAdventure.startup.domain.ConfigDebugSnapshot.outcom
         ConfigDebugResultType.TRANSIENT_ERROR ->
             "Config transient error. First launch shows NoInternet; stored WEBVIEW uses cached URL."
         null -> null
+    }
+}
+
+@Composable
+private fun LastAppsFlyerParamsSection(snapshot: StartupDebugSnapshot) {
+    Text(text = "Last AppsFlyer Params", style = MaterialTheme.typography.labelLarge)
+    Spacer(modifier = Modifier.height(PANEL_GAP / 2))
+
+    val data = snapshot.lastAttributionData
+    if (data == null || data.isEmpty()) {
+        Text(text = "No AppsFlyer data received yet", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+
+    val keysToDisplay = listOf(
+        "af_status", "pid", "c", "deep_link_value", "deep_link_sub1", "is_retargeting",
+        "af_sub1", "af_sub2", "af_sub3", "af_sub4", "af_sub5",
+        "adset", "af_adset", "af_c_id", "agency", "siteid"
+    )
+
+    keysToDisplay.forEach { key ->
+        Text(
+            text = "$key: ${data[key]?.toString() ?: "-"}",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+@Composable
+private fun DeepLinkParamsSection(snapshot: StartupDebugSnapshot) {
+    Text(text = "Deep Link Params", style = MaterialTheme.typography.labelLarge)
+    Spacer(modifier = Modifier.height(PANEL_GAP / 2))
+
+    Text(text = "deep_link_value: ${snapshot.deepLinkValue ?: "MISSING"}", style = MaterialTheme.typography.bodySmall)
+    Text(text = "deep_link_sub1: ${snapshot.deepLinkSub1 ?: "MISSING"}", style = MaterialTheme.typography.bodySmall)
+    if (snapshot.deepLinkSub2 != null) {
+        Text(text = "deep_link_sub2: ${snapshot.deepLinkSub2}", style = MaterialTheme.typography.bodySmall)
+    }
+    Text(text = "has required deeplink params: ${snapshot.hasRequiredDeeplinkParams}", style = MaterialTheme.typography.bodySmall)
+    
+    val source = snapshot.lastAttributionData?.get("af_status")?.toString()
+    Text(text = "last deeplink source: ${source ?: "-"}", style = MaterialTheme.typography.bodySmall)
+    Text(text = "last config contained deep_link_value: ${snapshot.lastConfigContainedDeepLinkValue}", style = MaterialTheme.typography.bodySmall)
+    Text(text = "last config contained any deep_link_sub: ${snapshot.lastConfigContainedAnyDeepLinkSub}", style = MaterialTheme.typography.bodySmall)
+
+    if (snapshot.attributionProviderMode == AttributionProviderMode.REAL && !snapshot.hasRequiredDeeplinkParams) {
+        Spacer(modifier = Modifier.height(PANEL_GAP / 2))
+        Text(
+            text = "Missing required AppsFlyer deeplink params. Open app from AppsFlyer/OneLink URL containing deep_link_value and deep_link_sub1.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error
+        )
     }
 }
 

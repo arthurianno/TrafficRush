@@ -82,6 +82,7 @@ data class ConfigDebugSnapshot(
     val requestContainedAfId: Boolean = false,
     val requestContainedPushToken: Boolean = false,
     val requestContainedFirebaseProjectId: Boolean = false,
+    val requestContainedAnyDeepLinkSub: Boolean = false,
     val requestAfStatus: String? = null,
     val requestDeepLinkValue: String? = null,
     val sanitizedResponseBody: String? = null
@@ -104,5 +105,12 @@ data class StartupDebugSnapshot(
     val pushTokenSentToConfig: Boolean = false,
     val lastConfigResponse: ConfigDebugSnapshot? = null,
     val lastStartupDecision: String? = null,
-    val lastStartupDecisionReason: String? = null
+    val lastStartupDecisionReason: String? = null,
+    val lastAttributionData: Map<String, Any?>? = null,
+    val deepLinkValue: String? = null,
+    val deepLinkSub1: String? = null,
+    val deepLinkSub2: String? = null,
+    val hasRequiredDeeplinkParams: Boolean = false,
+    val lastConfigContainedDeepLinkValue: Boolean = false,
+    val lastConfigContainedAnyDeepLinkSub: Boolean = false
 )
