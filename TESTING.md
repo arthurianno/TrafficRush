@@ -71,7 +71,7 @@ adb shell am start -n com.games.playNewAdventure/.MainActivity \
 
 Expected: Splash -> Push screen -> Accept/Skip -> WebView.
 
-Expected mock WebView URL: `https://web.team-s.club/`.
+Expected mock WebView URL base: `https://web.team-s.club/`. In mock attribution mode the app may append `deep_link_value=deep_link_test` and `deep_link_sub1=deep_test_sub1` so the client-side deeplink chain can be tested without injecting fake values in REAL mode.
 
 Safe area expectations:
 
@@ -121,7 +121,7 @@ Expected: No Internet screen. Tap `Retry` after restoring network.
 
 Expected: WebView opens the stored `last_webview_url`.
 
-For the mock success flow, the stored fallback URL should be `https://web.team-s.club/`.
+For the mock success flow, the stored fallback URL should use `https://web.team-s.club/` as the base URL. If mock attribution is active, `deep_link_value=deep_link_test` and `deep_link_sub1=deep_test_sub1` may be present in the URL.
 
 ## I. Real Config
 
@@ -163,6 +163,51 @@ https://app.appsflyer.com/com.games.playNewAdventure?pid=Test%20Source&c=testsub
 ```
 
 3. Install and launch the app.
+
+## K1. Почему WebView пишет Нет deep_link_value/deep_link_sub
+
+Эти параметры не появляются сами. В REAL mode клиент не подставляет fake `deep_link_value` или `deep_link_sub`: они должны прийти из рабочей AppsFlyer/OneLink ссылки, настроенной на package `com.games.playNewAdventure`.
+
+При запуске приложения с иконки `deep_link_value` и `deep_link_sub1` ожидаемо будут `MISSING`. Если OneLink открывает страницу `The app you are looking for is unavailable`, приложение технически не сможет получить эти параметры, потому что AppsFlyer не отдаёт валидный click/deeplink event для этого приложения.
+
+Для реальной проверки заказчик должен дать рабочий AppsFlyer/OneLink URL, настроенный на `com.games.playNewAdventure`, содержащий минимум:
+
+```text
+deep_link_value=deep_link_test
+deep_link_sub1=deep_test_sub1
+```
+
+Проверка цепочки в DebugPanel:
+
+- `AppsFlyer deep_link_value` и `AppsFlyer deep_link_sub1` показывают, получил ли SDK параметры.
+- `last deeplink source` должен быть `UDL`, `conversion`, `appOpenAttribution` или `none`.
+- `last config contained deep_link_value` и `last config contained any deep_link_sub` показывают, ушли ли параметры в `config.php` без переименования.
+- `last config returned URL contains ...` показывает, вернул ли сервер WebView URL с этими параметрами.
+- `current WebView URL contains ...` показывает, какой URL реально открыт в WebView.
+
+Диагностика:
+
+- AppsFlyer fields = `MISSING`: проблема в OneLink/AppsFlyer input или приложение запущено не из рабочей ссылки.
+- AppsFlyer fields есть, но `last config contained ... = false`: проблема клиентского request.
+- `last config contained ... = true`, но `last config returned URL contains ... = false`: `config.php` получил параметры, но вернул WebView URL без них. WebView-тест требует эти параметры именно в финальном URL.
+- `last config returned URL contains ... = true`, но `current WebView URL contains ... = false`: WebView открыл другой URL, нужно проверять launch source/navigation.
+
+Mock-only проверка клиентской логики:
+
+1. В DebugPanel выбрать `Config: MOCK`, `Attribution: MOCK`, `Scenario: SUCCESS_WEBVIEW`.
+2. Нажать `Reset state`, затем `Restart flow`.
+3. Ожидаемо:
+   - `AppsFlyer deep_link_value: deep_link_test`;
+   - `AppsFlyer deep_link_sub1: deep_test_sub1`;
+   - `has required deeplink params: true`;
+   - `last config contained deep_link_value: true`;
+   - `last config contained any deep_link_sub: true`;
+   - `last config returned URL contains deep_link_value: true`;
+   - `last config returned URL contains any deep_link_sub: true`;
+   - `current WebView URL contains deep_link_value: true`;
+   - `current WebView URL contains any deep_link_sub: true`.
+
+Mock mode нужен только для проверки клиентской цепочки. В REAL mode fake deeplink параметры не добавляются.
 
 ## L. AppsFlyer Dev Key vs AppsFlyer UID
 

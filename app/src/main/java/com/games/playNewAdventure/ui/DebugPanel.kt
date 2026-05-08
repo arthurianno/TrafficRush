@@ -3,6 +3,7 @@ package com.games.playNewAdventure.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -47,6 +48,7 @@ import com.games.playNewAdventure.startup.domain.ConfigProviderMode
 import com.games.playNewAdventure.startup.domain.MockConfigScenario
 import com.games.playNewAdventure.startup.domain.PushTokenProviderMode
 import com.games.playNewAdventure.startup.domain.StartupDebugSnapshot
+import com.games.playNewAdventure.startup.domain.TokenDebugInfo
 
 private val PANEL_MAX_WIDTH  = 360.dp
 private val PANEL_MAX_HEIGHT = 560.dp
@@ -58,6 +60,11 @@ private val PANEL_STATUS_GAP = 12.dp
 internal fun DebugPanel(
     snapshot: StartupDebugSnapshot,
     currentWebViewUrl: String?,
+    lastPushTapUrl: String?,
+    pendingPushUrl: String?,
+    pushUrlConsumed: Boolean,
+    lastLaunchSource: String,
+    pushUrlPersistedAsLastUrl: Boolean,
     onRefreshDiagnostics: () -> Unit,
     onScenarioSelected: (MockConfigScenario) -> Unit,
     onConfigProviderModeSelected: (ConfigProviderMode) -> Unit,
@@ -95,10 +102,15 @@ internal fun DebugPanel(
         appsFlyerUidIsMock = appsFlyerUidIsMock,
         appsFlyerUidSentToConfig = snapshot.appsFlyerUidSentToConfig,
         fcmTokenAvailable = snapshot.fcmTokenAvailable,
+        latestFcmTokenSentToConfig = snapshot.latestFcmTokenSentToConfig,
+        firebaseProjectIdSentToConfig = snapshot.firebaseProjectIdSentToConfig,
+        bundleIdSentToConfig = snapshot.bundleIdSentToConfig,
         notificationGranted = notificationGranted,
         pushTokenSentToConfig = snapshot.pushTokenSentToConfig
     )
     val readyForPushTest = pushTestNotReadyReasons.isEmpty()
+    val currentUrlContainsDeepLinkValue = urlContainsNonBlankParam(currentWebViewUrl, KEY_DEEP_LINK_VALUE)
+    val currentUrlContainsAnyDeepLinkSub = urlContainsAnyNonBlankDeepLinkSub(currentWebViewUrl)
 
     LaunchedEffect(
         expanded
@@ -116,6 +128,9 @@ internal fun DebugPanel(
         appsFlyerUid,
         snapshot.appsFlyerUidSentToConfig,
         snapshot.fcmTokenAvailable,
+        snapshot.latestFcmToken,
+        snapshot.lastSentPushToken,
+        snapshot.latestFcmTokenSentToConfig,
         snapshot.pushTokenSentToConfig,
         lastConfigResponse,
         snapshot.lastStartupDecision,
@@ -128,7 +143,9 @@ internal fun DebugPanel(
             Log.d(DEBUG_PANEL_LOG_TAG, "attribution source ${snapshot.attributionProviderMode}")
             Log.d(DEBUG_PANEL_LOG_TAG, "FCM token available ${snapshot.fcmTokenAvailable}")
             Log.d(DEBUG_PANEL_LOG_TAG, "af_id sent to config ${snapshot.appsFlyerUidSentToConfig}")
-            Log.d(DEBUG_PANEL_LOG_TAG, "push_token sent to config ${snapshot.pushTokenSentToConfig}")
+            Log.d(DEBUG_PANEL_LOG_TAG, "latest FCM token sent to config ${snapshot.latestFcmTokenSentToConfig}")
+            Log.d(DEBUG_PANEL_LOG_TAG, "latest FCM token ${snapshot.latestFcmToken.toDisplayString()}")
+            Log.d(DEBUG_PANEL_LOG_TAG, "last sent push_token ${snapshot.lastSentPushToken.toDisplayString()}")
             Log.d(
                 DEBUG_PANEL_LOG_TAG,
                 "last config: source=${lastConfigResponse?.source ?: "-"} " +
@@ -354,11 +371,22 @@ internal fun DebugPanel(
                     Text(text = "Config source: ${snapshot.configProviderMode}", style = MaterialTheme.typography.bodySmall)
                     Text(text = "Attribution source: ${snapshot.attributionProviderMode}", style = MaterialTheme.typography.bodySmall)
                     Text(text = "Push token source: ${snapshot.pushTokenProviderMode}", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "Last launch source: $lastLaunchSource", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "Last push tap URL: ${lastPushTapUrl.toMaskedDisplayUrl()}", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "Pending push URL: ${pendingPushUrl.toMaskedDisplayUrl()}", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "Push URL consumed: $pushUrlConsumed", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "Push URL persisted as last URL: $pushUrlPersistedAsLastUrl", style = MaterialTheme.typography.bodySmall)
                     Text(text = "FCM token: ${if (snapshot.fcmTokenAvailable) "available" else "not available"}", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "Last FCM token: ${snapshot.latestFcmToken.toDisplayString()}", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "Last sent push_token: ${snapshot.lastSentPushToken.toDisplayString()}", style = MaterialTheme.typography.bodySmall)
                     Text(text = "Firebase project: ${snapshot.firebaseProjectId ?: "-"}", style = MaterialTheme.typography.bodySmall)
                     Text(text = "Notification permission: $notificationGranted", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "Last sent af_id: ${snapshot.lastSentAfId ?: "-"}", style = MaterialTheme.typography.bodySmall)
                     Text(text = "af_id sent to config: ${snapshot.appsFlyerUidSentToConfig}", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "Latest FCM token sent to config: ${snapshot.latestFcmTokenSentToConfig}", style = MaterialTheme.typography.bodySmall)
                     Text(text = "Push token sent to config: ${snapshot.pushTokenSentToConfig}", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "firebase_project_id sent to config: ${snapshot.firebaseProjectIdSentToConfig}", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "bundle_id sent to config: ${snapshot.bundleIdSentToConfig}", style = MaterialTheme.typography.bodySmall)
                     Text(text = "Ready for push test: $readyForPushTest", style = MaterialTheme.typography.bodySmall)
                     pushTestNotReadyReasons.forEach { reason ->
                         Text(
@@ -383,7 +411,12 @@ internal fun DebugPanel(
                     
                     Spacer(modifier = Modifier.height(PANEL_GAP))
                     
-                    DeepLinkParamsSection(snapshot = snapshot)
+                    DeepLinkParamsSection(
+                        snapshot = snapshot,
+                        currentWebViewUrl = currentWebViewUrl,
+                        currentUrlContainsDeepLinkValue = currentUrlContainsDeepLinkValue,
+                        currentUrlContainsAnyDeepLinkSub = currentUrlContainsAnyDeepLinkSub
+                    )
 
                     Spacer(modifier = Modifier.height(PANEL_GAP))
 
@@ -449,16 +482,25 @@ private fun LastConfigResponseSection(snapshot: StartupDebugSnapshot) {
     Text(text = "HTTP status: ${config.httpStatus?.toString() ?: "-"}", style = MaterialTheme.typography.bodySmall)
     Text(text = "Result: ${config.resultType?.displayName ?: "-"}", style = MaterialTheme.typography.bodySmall)
     Text(text = "ok: ${config.ok?.toString() ?: "-"}", style = MaterialTheme.typography.bodySmall)
-    Text(text = "url: ${config.url ?: "-"}", style = MaterialTheme.typography.bodySmall)
+    Text(text = "url: ${config.url.toMaskedDisplayUrl()}", style = MaterialTheme.typography.bodySmall)
     Text(text = "error: ${config.errorMessage ?: "-"}", style = MaterialTheme.typography.bodySmall)
     Text(text = "request af_id: ${config.requestContainedAfId}", style = MaterialTheme.typography.bodySmall)
+    Text(text = "request af_id value: ${config.requestAfId ?: "-"}", style = MaterialTheme.typography.bodySmall)
     Text(text = "request push_token: ${config.requestContainedPushToken}", style = MaterialTheme.typography.bodySmall)
+    Text(text = "request push_token info: ${config.requestPushToken.toDisplayString()}", style = MaterialTheme.typography.bodySmall)
     Text(
         text = "request firebase_project_id: ${config.requestContainedFirebaseProjectId}",
         style = MaterialTheme.typography.bodySmall
     )
+    Text(text = "request firebase_project_id value: ${config.requestFirebaseProjectId ?: "-"}", style = MaterialTheme.typography.bodySmall)
+    Text(text = "request bundle_id: ${config.requestContainedBundleId}", style = MaterialTheme.typography.bodySmall)
+    Text(text = "request bundle_id value: ${config.requestBundleId ?: "-"}", style = MaterialTheme.typography.bodySmall)
     Text(text = "request af_status: ${config.requestAfStatus ?: "-"}", style = MaterialTheme.typography.bodySmall)
     Text(text = "request deep_link_value: ${config.requestDeepLinkValue ?: "-"}", style = MaterialTheme.typography.bodySmall)
+    Text(
+        text = "request any deep_link_sub: ${config.requestContainedAnyDeepLinkSub}",
+        style = MaterialTheme.typography.bodySmall
+    )
     Text(text = "Startup decision: ${snapshot.lastStartupDecision ?: "-"}", style = MaterialTheme.typography.bodySmall)
     Text(text = "Decision reason: ${snapshot.lastStartupDecisionReason ?: "-"}", style = MaterialTheme.typography.bodySmall)
 
@@ -508,7 +550,8 @@ private fun LastAppsFlyerParamsSection(snapshot: StartupDebugSnapshot) {
     }
 
     val keysToDisplay = listOf(
-        "af_status", "pid", "c", "deep_link_value", "deep_link_sub1", "is_retargeting",
+        "af_status", "pid", "c", "deep_link_value", "deep_link_sub1", "deep_link_sub2",
+        "deep_link_sub3", "deep_link_sub4", "deep_link_sub5", "is_retargeting",
         "af_sub1", "af_sub2", "af_sub3", "af_sub4", "af_sub5",
         "adset", "af_adset", "af_c_id", "agency", "siteid"
     )
@@ -522,26 +565,69 @@ private fun LastAppsFlyerParamsSection(snapshot: StartupDebugSnapshot) {
 }
 
 @Composable
-private fun DeepLinkParamsSection(snapshot: StartupDebugSnapshot) {
+private fun DeepLinkParamsSection(
+    snapshot: StartupDebugSnapshot,
+    currentWebViewUrl: String?,
+    currentUrlContainsDeepLinkValue: Boolean,
+    currentUrlContainsAnyDeepLinkSub: Boolean
+) {
     Text(text = "Deep Link Params", style = MaterialTheme.typography.labelLarge)
     Spacer(modifier = Modifier.height(PANEL_GAP / 2))
 
-    Text(text = "deep_link_value: ${snapshot.deepLinkValue ?: "MISSING"}", style = MaterialTheme.typography.bodySmall)
-    Text(text = "deep_link_sub1: ${snapshot.deepLinkSub1 ?: "MISSING"}", style = MaterialTheme.typography.bodySmall)
+    val lastConfigUrl = snapshot.lastConfigResponse?.url
+    val lastConfigUrlContainsDeepLinkValue = urlContainsNonBlankParam(lastConfigUrl, KEY_DEEP_LINK_VALUE)
+    val lastConfigUrlContainsAnyDeepLinkSub = urlContainsAnyNonBlankDeepLinkSub(lastConfigUrl)
+    val clientSentRequiredParams = snapshot.hasRequiredDeeplinkParams &&
+        snapshot.lastConfigContainedDeepLinkValue &&
+        snapshot.lastConfigContainedAnyDeepLinkSub
+    val lastConfigUrlMissingRequiredParams = !lastConfigUrlContainsDeepLinkValue ||
+        !lastConfigUrlContainsAnyDeepLinkSub
+    val currentWebViewUrlMissingRequiredParams = !currentUrlContainsDeepLinkValue || !currentUrlContainsAnyDeepLinkSub
+    val firstDeepLinkSub = snapshot.lastAttributionData.orEmpty()
+        .entries
+        .sortedBy { (key, _) -> key }
+        .firstOrNull { (key, value) ->
+            key.startsWith(KEY_DEEP_LINK_SUB_PREFIX) && value.toNonBlankDebugString() != null
+        }
+
+    Text(text = "AppsFlyer deep_link_value: ${snapshot.deepLinkValue ?: "MISSING"}", style = MaterialTheme.typography.bodySmall)
+    Text(text = "AppsFlyer deep_link_sub1: ${snapshot.deepLinkSub1 ?: "MISSING"}", style = MaterialTheme.typography.bodySmall)
     if (snapshot.deepLinkSub2 != null) {
-        Text(text = "deep_link_sub2: ${snapshot.deepLinkSub2}", style = MaterialTheme.typography.bodySmall)
+        Text(text = "AppsFlyer deep_link_sub2: ${snapshot.deepLinkSub2}", style = MaterialTheme.typography.bodySmall)
     }
+    Text(
+        text = "any deep_link_sub: ${firstDeepLinkSub?.let { "${it.key}=${it.value.toNonBlankDebugString()}" } ?: "MISSING"}",
+        style = MaterialTheme.typography.bodySmall
+    )
     Text(text = "has required deeplink params: ${snapshot.hasRequiredDeeplinkParams}", style = MaterialTheme.typography.bodySmall)
-    
-    val source = snapshot.lastAttributionData?.get("af_status")?.toString()
-    Text(text = "last deeplink source: ${source ?: "-"}", style = MaterialTheme.typography.bodySmall)
+    Text(text = "last deeplink source: ${snapshot.deepLinkSource}", style = MaterialTheme.typography.bodySmall)
     Text(text = "last config contained deep_link_value: ${snapshot.lastConfigContainedDeepLinkValue}", style = MaterialTheme.typography.bodySmall)
     Text(text = "last config contained any deep_link_sub: ${snapshot.lastConfigContainedAnyDeepLinkSub}", style = MaterialTheme.typography.bodySmall)
+    Text(text = "last config returned URL contains deep_link_value: $lastConfigUrlContainsDeepLinkValue", style = MaterialTheme.typography.bodySmall)
+    Text(text = "last config returned URL contains any deep_link_sub: $lastConfigUrlContainsAnyDeepLinkSub", style = MaterialTheme.typography.bodySmall)
+    Text(text = "current WebView URL contains deep_link_value: $currentUrlContainsDeepLinkValue", style = MaterialTheme.typography.bodySmall)
+    Text(text = "current WebView URL contains any deep_link_sub: $currentUrlContainsAnyDeepLinkSub", style = MaterialTheme.typography.bodySmall)
 
     if (snapshot.attributionProviderMode == AttributionProviderMode.REAL && !snapshot.hasRequiredDeeplinkParams) {
         Spacer(modifier = Modifier.height(PANEL_GAP / 2))
         Text(
-            text = "Missing required AppsFlyer deeplink params. Open app from AppsFlyer/OneLink URL containing deep_link_value and deep_link_sub1.",
+            text = "Missing required AppsFlyer deeplink params. Open the app from AppsFlyer/OneLink URL containing deep_link_value and deep_link_sub1.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error
+        )
+    }
+    if (clientSentRequiredParams && lastConfigUrl != null && lastConfigUrlMissingRequiredParams) {
+        Spacer(modifier = Modifier.height(PANEL_GAP / 2))
+        Text(
+            text = "Client has deep link params and sent them to config, but server returned WebView URL without them.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error
+        )
+    }
+    if (clientSentRequiredParams && lastConfigUrl != null && !lastConfigUrlMissingRequiredParams && currentWebViewUrlMissingRequiredParams) {
+        Spacer(modifier = Modifier.height(PANEL_GAP / 2))
+        Text(
+            text = "Config returned URL contains deep link params, but current WebView URL does not. Check WebView navigation/launch source.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error
         )
@@ -555,7 +641,7 @@ private fun CompactUrlRow(label: String, url: String?) {
         context.getSystemService(ClipboardManager::class.java)
     }
     var urlExpanded by remember { mutableStateOf(false) }
-    val displayUrl = url?.takeIf { it.isNotBlank() } ?: "-"
+    val displayUrl = url.toMaskedDisplayUrl()
 
     Column {
         Row(
@@ -610,6 +696,9 @@ private fun buildPushTestNotReadyReasons(
     appsFlyerUidIsMock: Boolean,
     appsFlyerUidSentToConfig: Boolean,
     fcmTokenAvailable: Boolean,
+    latestFcmTokenSentToConfig: Boolean,
+    firebaseProjectIdSentToConfig: Boolean,
+    bundleIdSentToConfig: Boolean,
     notificationGranted: Boolean,
     pushTokenSentToConfig: Boolean
 ): List<String> {
@@ -634,6 +723,15 @@ private fun buildPushTestNotReadyReasons(
         if (!fcmTokenAvailable) {
             add("FCM token unavailable")
         }
+        if (!latestFcmTokenSentToConfig) {
+            add("latest FCM token was not sent to config")
+        }
+        if (!firebaseProjectIdSentToConfig) {
+            add("firebase_project_id was not sent to config")
+        }
+        if (!bundleIdSentToConfig) {
+            add("bundle_id was not sent to config")
+        }
         if (!notificationGranted) {
             add("notification permission not granted")
         }
@@ -643,9 +741,73 @@ private fun buildPushTestNotReadyReasons(
     }
 }
 
+private fun urlContainsNonBlankParam(url: String?, parameterName: String): Boolean {
+    return urlQueryParams(url).any { (key, value) ->
+        key == parameterName && value.isNotBlank()
+    }
+}
+
+private fun urlContainsAnyNonBlankDeepLinkSub(url: String?): Boolean {
+    return urlQueryParams(url).any { (key, value) ->
+        key.startsWith(KEY_DEEP_LINK_SUB_PREFIX) && value.isNotBlank()
+    }
+}
+
+private fun urlQueryParams(url: String?): List<Pair<String, String>> {
+    val rawUrl = url?.takeIf { it.isNotBlank() } ?: return emptyList()
+    return runCatching {
+        val uri = Uri.parse(rawUrl)
+        val encodedQuery = uri.encodedQuery
+            ?: uri.encodedFragment
+                ?.substringAfter("?", missingDelimiterValue = "")
+                ?.takeIf { it.isNotBlank() }
+            ?: return@runCatching emptyList()
+
+        encodedQuery.split("&")
+            .mapNotNull { encodedPair ->
+                val encodedKey = encodedPair.substringBefore("=").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val encodedValue = encodedPair.substringAfter("=", missingDelimiterValue = "")
+                Uri.decode(encodedKey) to Uri.decode(encodedValue)
+            }
+    }.getOrDefault(emptyList())
+}
+
+private fun TokenDebugInfo?.toDisplayString(): String {
+    return this?.let { "len=${it.length}, hash=${it.sha256}, last4=${it.last4}" } ?: "-"
+}
+
+private fun String?.toMaskedDisplayUrl(): String {
+    val rawUrl = this?.takeIf { it.isNotBlank() } ?: return "-"
+    return runCatching {
+        val uri = Uri.parse(rawUrl)
+        val sensitiveKeys = setOf("push_token", "sub_id_7")
+        uri.buildUpon()
+            .clearQuery()
+            .also { builder ->
+                uri.queryParameterNames.forEach { key ->
+                    uri.getQueryParameters(key).forEach { value ->
+                        builder.appendQueryParameter(
+                            key,
+                            if (key in sensitiveKeys) "MASKED" else value
+                        )
+                    }
+                }
+            }
+            .build()
+            .toString()
+    }.getOrDefault(rawUrl)
+}
+
+private fun Any?.toNonBlankDebugString(): String? {
+    return this?.toString()
+        ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+}
+
 private const val MOCK_PREFIX = "mock"
 private const val PUSH_TEST_URL_PREFIX = "https://web.team-s.club/check_push?af_id="
 private const val DEBUG_PANEL_LOG_TAG = "DebugPanel"
+private const val KEY_DEEP_LINK_VALUE = "deep_link_value"
+private const val KEY_DEEP_LINK_SUB_PREFIX = "deep_link_sub"
 
 private fun logDebug(message: String) {
     if (BuildConfig.DEBUG) {

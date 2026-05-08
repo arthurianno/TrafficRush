@@ -5,6 +5,7 @@ import com.games.playNewAdventure.startup.domain.AttributionData
 import com.games.playNewAdventure.startup.domain.ConfigDebugResultType
 import com.games.playNewAdventure.startup.domain.ConfigFetchResult
 import com.games.playNewAdventure.startup.domain.PushData
+import com.games.playNewAdventure.startup.domain.toTokenDebugInfo
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
@@ -68,7 +69,11 @@ class RemoteConfigServiceTest {
 
         val requestJson = JSONObject(request.body.readUtf8())
         assertEquals("Non-organic", requestJson.getString("af_status"))
+        assertEquals("deep_link_test", requestJson.getString("deep_link_value"))
+        assertEquals("deep_test_sub1", requestJson.getString("deep_link_sub1"))
+        assertEquals("mock_af_id_123", requestJson.getString("af_id"))
         assertEquals("token", requestJson.getString("push_token"))
+        assertEquals(AppConstants.FIREBASE_PROJECT_ID, requestJson.getString("firebase_project_id"))
         assertEquals(AppConstants.APPLICATION_ID, requestJson.getString("bundle_id"))
         assertEquals(AppConstants.APPLICATION_ID, requestJson.getString("application_id"))
         assertEquals("Android", requestJson.getString("platform"))
@@ -81,6 +86,12 @@ class RemoteConfigServiceTest {
         assertTrue(diagnostics?.requestContainedAfId == true)
         assertTrue(diagnostics?.requestContainedPushToken == true)
         assertTrue(diagnostics?.requestContainedFirebaseProjectId == true)
+        assertTrue(diagnostics?.requestContainedBundleId == true)
+        assertTrue(diagnostics?.requestContainedAnyDeepLinkSub == true)
+        assertEquals("mock_af_id_123", diagnostics?.requestAfId)
+        assertEquals("token".toTokenDebugInfo(), diagnostics?.requestPushToken)
+        assertEquals(AppConstants.FIREBASE_PROJECT_ID, diagnostics?.requestFirebaseProjectId)
+        assertEquals(AppConstants.APPLICATION_ID, diagnostics?.requestBundleId)
         assertEquals("Non-organic", diagnostics?.requestAfStatus)
         assertEquals("deep_link_test", diagnostics?.requestDeepLinkValue)
     }
@@ -216,6 +227,7 @@ private fun fakeAttributionData(): AttributionData {
             "af_sub1" to "mock_sub1",
             "af_id" to "mock_af_id_123",
             "deep_link_value" to "deep_link_test",
+            "deep_link_sub1" to "deep_test_sub1",
             "is_first_launch" to true
         )
     )

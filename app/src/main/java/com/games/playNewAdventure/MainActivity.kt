@@ -12,6 +12,7 @@ import android.webkit.WebChromeClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.FileProvider
 import com.games.playNewAdventure.data.AppStorage
 import com.games.playNewAdventure.service.AndroidDeviceDataProvider
@@ -42,6 +43,8 @@ import java.io.File
 class MainActivity : ComponentActivity() {
     private var webFilePathCallback: ValueCallback<Array<Uri>>? = null
     private var webCameraCaptureUri: Uri? = null
+    private var pushLaunchRequestCounter = 0L
+    private val pushLaunchState = mutableStateOf(PushLaunchState())
 
     private val appStorage by lazy {
         AppStorage(applicationContext)
@@ -64,10 +67,10 @@ class MainActivity : ComponentActivity() {
             SwitchingPushTokenService(
                 modeProvider = { appStorage.pushTokenProviderMode },
                 mockPushService = MockPushService(),
-                realPushService = FirebasePushService()
+                realPushService = FirebasePushService(applicationContext)
             )
         } else {
-            FirebasePushService()
+            FirebasePushService(applicationContext)
         }
     }
 
@@ -112,13 +115,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         applyDebugIntentOverrides(intent)
+        intent.pushWebViewUrlOrNull()?.let(::publishPushLaunch)
 
         setContent {
+            val pushLaunch = pushLaunchState.value
             TrafficRushTheme {
                 StartupHost(
                     activity = this,
                     startupController = startupController,
-                    initialWebViewUrl = intent.pushWebViewUrlOrNull(),
+                    initialWebViewUrl = pushLaunch.url,
+                    initialWebViewRequestId = pushLaunch.requestId,
                     onShowWebFileChooser = ::openWebFileChooser,
                     onPushPermissionAccepted = { onComplete ->
                         notificationPermissionRequester.requestNotificationPermission(onComplete)
@@ -131,7 +137,13 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (applyDebugIntentOverrides(intent) || intent.pushWebViewUrlOrNull() != null) {
+        val debugOverridesChanged = applyDebugIntentOverrides(intent)
+        val pushUrl = intent.pushWebViewUrlOrNull()
+        if (pushUrl != null) {
+            publishPushLaunch(pushUrl)
+            return
+        }
+        if (debugOverridesChanged) {
             recreate()
         }
     }
@@ -161,15 +173,6 @@ class MainActivity : ComponentActivity() {
             requestCode = requestCode,
             grantResults = grantResults
         )
-    }
-
-    private companion object {
-        const val REQUEST_WEB_FILE_CHOOSER = 20_400
-        const val EXTRA_DEBUG_RESET = "debug_reset"
-        const val EXTRA_DEBUG_CONFIG_SOURCE = "debug_config_source"
-        const val EXTRA_DEBUG_MOCK_SCENARIO = "debug_mock_scenario"
-        const val EXTRA_DEBUG_ATTRIBUTION_SOURCE = "debug_attribution_source"
-        const val EXTRA_DEBUG_PUSH_SOURCE = "debug_push_source"
     }
 
     private fun openWebFileChooser(
@@ -295,7 +298,30 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun Intent.pushWebViewUrlOrNull(): String? {
-        return getStringExtra(AppConstants.EXTRA_PUSH_URL)?.takeIf { it.isNotBlank() }
+        return PUSH_URL_EXTRA_KEYS.firstNotNullOfOrNull { key ->
+            stringExtraOrNull(key)?.takeIf { it.isSupportedPushWebUrl() }
+        } ?: dataString?.takeIf { it.isSupportedPushWebUrl() }
+    }
+
+    private fun Intent.stringExtraOrNull(key: String): String? {
+        return getStringExtra(key)
+            ?: extras?.getCharSequence(key)?.toString()
+    }
+
+    private fun String.isSupportedPushWebUrl(): Boolean {
+        val scheme = runCatching { Uri.parse(this).scheme?.lowercase() }.getOrNull()
+        return isNotBlank() && (scheme == "http" || scheme == "https")
+    }
+
+    private fun publishPushLaunch(url: String) {
+        pushLaunchRequestCounter += 1
+        pushLaunchState.value = PushLaunchState(
+            url = url,
+            requestId = pushLaunchRequestCounter
+        )
+        if (BuildConfig.DEBUG) {
+            Log.d("TrafficRushMainActivity", "MainActivity received push url from intent = $url")
+        }
     }
 
     private fun applyDebugIntentOverrides(intent: Intent?): Boolean {
@@ -342,5 +368,28 @@ class MainActivity : ComponentActivity() {
         }
 
         return changed
+    }
+
+    private data class PushLaunchState(
+        val url: String? = null,
+        val requestId: Long = 0L
+    )
+
+    private companion object {
+        const val REQUEST_WEB_FILE_CHOOSER = 20_400
+        const val EXTRA_DEBUG_RESET = "debug_reset"
+        const val EXTRA_DEBUG_CONFIG_SOURCE = "debug_config_source"
+        const val EXTRA_DEBUG_MOCK_SCENARIO = "debug_mock_scenario"
+        const val EXTRA_DEBUG_ATTRIBUTION_SOURCE = "debug_attribution_source"
+        const val EXTRA_DEBUG_PUSH_SOURCE = "debug_push_source"
+
+        val PUSH_URL_EXTRA_KEYS = listOf(
+            AppConstants.EXTRA_PUSH_URL,
+            "url",
+            "link",
+            "deeplink",
+            "deep_link",
+            "deep_link_value"
+        )
     }
 }

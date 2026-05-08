@@ -15,12 +15,16 @@ import com.games.playNewAdventure.startup.domain.ConfigDiagnosticsProvider
 import com.games.playNewAdventure.startup.domain.ConfigFetchResult
 import com.games.playNewAdventure.startup.domain.ConfigProvider
 import com.games.playNewAdventure.startup.domain.ConfigProviderMode
+import com.games.playNewAdventure.startup.domain.DEEP_LINK_SOURCE_CONVERSION
 import com.games.playNewAdventure.startup.domain.DeviceDataProvider
 import com.games.playNewAdventure.startup.domain.MockConfigScenario
 import com.games.playNewAdventure.startup.domain.NetworkStatusProvider
 import com.games.playNewAdventure.startup.domain.PushData
 import com.games.playNewAdventure.startup.domain.PushTokenProvider
 import com.games.playNewAdventure.startup.domain.PushTokenProviderMode
+import com.games.playNewAdventure.startup.domain.toTokenDebugInfo
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.util.Locale
 import kotlinx.coroutines.delay
 
@@ -34,8 +38,11 @@ class MockAttributionService : AttributionProvider {
                 "media_source" to "Facebook Ads",
                 "af_sub1" to "mock_sub1",
                 "af_id" to "mock_af_id_123",
+                "deep_link_value" to "deep_link_test",
+                "deep_link_sub1" to "deep_test_sub1",
                 "is_first_launch" to true
-            )
+            ),
+            deepLinkSource = DEEP_LINK_SOURCE_CONVERSION
         )
     }
 }
@@ -94,7 +101,7 @@ class MockConfigService(
     ): ConfigFetchResult {
         val result = when (scenarioProvider()) {
             MockConfigScenario.SUCCESS_WEBVIEW -> ConfigFetchResult.Success(
-                url = AppConstants.MOCK_WEBVIEW_URL,
+                url = AppConstants.MOCK_WEBVIEW_URL.withDeepLinkParams(attributionData.values),
                 expires = 1_893_456_000
             )
 
@@ -196,6 +203,8 @@ private const val STARTUP_SERVICES_LOG_TAG = "StartupServices"
 private const val KEY_AF_ID = "af_id"
 private const val KEY_AF_STATUS = "af_status"
 private const val KEY_DEEP_LINK_VALUE = "deep_link_value"
+private const val KEY_DEEP_LINK_SUB_PREFIX = "deep_link_sub"
+private const val KEY_BUNDLE_ID = "bundle_id"
 
 private fun logDebug(message: String) {
     if (BuildConfig.DEBUG) {
@@ -218,12 +227,55 @@ private fun ConfigFetchResult.toConfigDebugSnapshot(
         ok = defaultOkValue(),
         url = (this as? ConfigFetchResult.Success)?.url,
         errorMessage = errorMessage() ?: message,
-        requestContainedAfId = attributionData.values[KEY_AF_ID]?.toString()?.isNotBlank() == true,
+        requestContainedAfId = attributionData.values[KEY_AF_ID].toNonBlankAttributionString() != null,
         requestContainedPushToken = !pushData?.pushToken.isNullOrBlank(),
         requestContainedFirebaseProjectId = !pushData?.firebaseProjectId.isNullOrBlank(),
-        requestAfStatus = attributionData.values[KEY_AF_STATUS]?.toString()?.takeIf { it.isNotBlank() },
-        requestDeepLinkValue = attributionData.values[KEY_DEEP_LINK_VALUE]?.toString()?.takeIf { it.isNotBlank() }
+        requestContainedBundleId = true,
+        requestContainedAnyDeepLinkSub = attributionData.values.any { (key, value) ->
+            key.startsWith(KEY_DEEP_LINK_SUB_PREFIX) && value.toNonBlankAttributionString() != null
+        },
+        requestAfId = attributionData.values[KEY_AF_ID].toNonBlankAttributionString(),
+        requestPushToken = pushData?.pushToken.toTokenDebugInfo(),
+        requestFirebaseProjectId = pushData?.firebaseProjectId?.takeIf { it.isNotBlank() },
+        requestBundleId = AppConstants.APPLICATION_ID,
+        requestAfStatus = attributionData.values[KEY_AF_STATUS].toNonBlankAttributionString(),
+        requestDeepLinkValue = attributionData.values[KEY_DEEP_LINK_VALUE].toNonBlankAttributionString()
     )
+}
+
+private fun Any?.toNonBlankAttributionString(): String? {
+    return this?.toString()
+        ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+}
+
+private fun String.withDeepLinkParams(values: Map<String, Any?>): String {
+    val params = buildList {
+        values[KEY_DEEP_LINK_VALUE].toNonBlankAttributionString()?.let { value ->
+            add(KEY_DEEP_LINK_VALUE to value)
+        }
+        values.entries
+            .asSequence()
+            .filter { (key, value) ->
+                key.startsWith(KEY_DEEP_LINK_SUB_PREFIX) &&
+                    value.toNonBlankAttributionString() != null
+            }
+            .map { (key, value) -> key to value.toNonBlankAttributionString().orEmpty() }
+            .sortedBy { (key, _) -> key }
+            .forEach { param -> add(param) }
+    }
+
+    if (params.isEmpty()) {
+        return this
+    }
+
+    val separator = if (contains("?")) "&" else "?"
+    return this + separator + params.joinToString("&") { (key, value) ->
+        "${key.urlEncode()}=${value.urlEncode()}"
+    }
+}
+
+private fun String.urlEncode(): String {
+    return URLEncoder.encode(this, StandardCharsets.UTF_8.toString())
 }
 
 private fun ConfigFetchResult.toDebugResultType(): ConfigDebugResultType {

@@ -11,6 +11,8 @@ import com.games.playNewAdventure.startup.domain.ConfigFetchResult
 import com.games.playNewAdventure.startup.domain.ConfigProvider
 import com.games.playNewAdventure.startup.domain.ConfigProviderMode
 import com.games.playNewAdventure.startup.domain.PushData
+import com.games.playNewAdventure.startup.domain.TokenDebugInfo
+import com.games.playNewAdventure.startup.domain.toTokenDebugInfo
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
@@ -46,6 +48,8 @@ class RemoteConfigService(
                     "containsAfId=${requestDebug?.containsAfId} " +
                     "containsPushToken=${requestDebug?.containsPushToken} " +
                     "containsFirebaseProjectId=${requestDebug?.containsFirebaseProjectId} " +
+                    "containsBundleId=${requestDebug?.containsBundleId} " +
+                    "containsAnyDeepLinkSub=${requestDebug?.containsAnyDeepLinkSub} " +
                     "af_status=${requestDebug?.afStatus ?: "-"} " +
                     "deep_link_value=${requestDebug?.deepLinkValue ?: "-"}"
             )
@@ -110,9 +114,11 @@ class RemoteConfigService(
 
             pushData?.pushToken?.takeIf { it.isNotBlank() }?.let { token ->
                 put(KEY_PUSH_TOKEN, token)
-                val tokenLength = token.length
-                val tokenLast4 = token.takeLast(4)
-                logDebug("push_token length=$tokenLength, last4=$tokenLast4")
+                val tokenInfo = token.toTokenDebugInfo()
+                logDebug(
+                    "push_token length=${tokenInfo?.length ?: 0}, " +
+                        "hash=${tokenInfo?.sha256 ?: "-"}, last4=${tokenInfo?.last4 ?: "-"}"
+                )
             }
             pushData?.firebaseProjectId?.takeIf { it.isNotBlank() }?.let { projectId ->
                 put(KEY_FIREBASE_PROJECT_ID, projectId)
@@ -131,7 +137,7 @@ class RemoteConfigService(
     private fun JSONObject.toRequestDebug(): ConfigRequestDebug {
         var anyDeepLinkSub = false
         keys().forEach { key ->
-            if (key.startsWith("deep_link_sub")) {
+            if (key.startsWith(KEY_DEEP_LINK_SUB_PREFIX) && hasNonBlankString(key)) {
                 anyDeepLinkSub = true
             }
         }
@@ -139,6 +145,11 @@ class RemoteConfigService(
             containsAfId = hasNonBlankString(KEY_AF_ID),
             containsPushToken = hasNonBlankString(KEY_PUSH_TOKEN),
             containsFirebaseProjectId = hasNonBlankString(KEY_FIREBASE_PROJECT_ID),
+            containsBundleId = hasNonBlankString(KEY_BUNDLE_ID),
+            afId = optionalNonBlankString(KEY_AF_ID),
+            pushToken = optionalNonBlankString(KEY_PUSH_TOKEN).toTokenDebugInfo(),
+            firebaseProjectId = optionalNonBlankString(KEY_FIREBASE_PROJECT_ID),
+            bundleId = optionalNonBlankString(KEY_BUNDLE_ID),
             afStatus = optionalString(KEY_AF_STATUS),
             deepLinkValue = optionalString(KEY_DEEP_LINK_VALUE),
             containsAnyDeepLinkSub = anyDeepLinkSub
@@ -214,7 +225,12 @@ class RemoteConfigService(
             requestContainedAfId = requestDebug?.containsAfId == true,
             requestContainedPushToken = requestDebug?.containsPushToken == true,
             requestContainedFirebaseProjectId = requestDebug?.containsFirebaseProjectId == true,
+            requestContainedBundleId = requestDebug?.containsBundleId == true,
             requestContainedAnyDeepLinkSub = requestDebug?.containsAnyDeepLinkSub == true,
+            requestAfId = requestDebug?.afId,
+            requestPushToken = requestDebug?.pushToken,
+            requestFirebaseProjectId = requestDebug?.firebaseProjectId,
+            requestBundleId = requestDebug?.bundleId,
             requestAfStatus = requestDebug?.afStatus,
             requestDeepLinkValue = requestDebug?.deepLinkValue,
             sanitizedResponseBody = sanitizeResponseBody(responseBody.orEmpty())
@@ -276,7 +292,15 @@ class RemoteConfigService(
             JSONObject().apply {
                 listOf(KEY_OK, KEY_URL, KEY_MESSAGE, KEY_EXPIRES).forEach { key ->
                     if (source.has(key) && !source.isNull(key)) {
-                        put(key, source.get(key))
+                        val value = source.get(key)
+                        put(
+                            key,
+                            if (key == KEY_URL && value is String) {
+                                value.maskSensitiveQueryValues()
+                            } else {
+                                value
+                            }
+                        )
                     }
                 }
             }.toString()
@@ -299,6 +323,10 @@ class RemoteConfigService(
         } else {
             null
         }
+    }
+
+    private fun JSONObject.optionalNonBlankString(key: String): String? {
+        return optionalString(key)?.takeIf { it.isNotBlank() }
     }
 
     private fun HttpURLConnection.readResponseBody(responseCode: Int): String {
@@ -324,6 +352,7 @@ class RemoteConfigService(
         const val KEY_AF_ID = "af_id"
         const val KEY_AF_STATUS = "af_status"
         const val KEY_DEEP_LINK_VALUE = "deep_link_value"
+        const val KEY_DEEP_LINK_SUB_PREFIX = "deep_link_sub"
         const val KEY_PUSH_TOKEN = "push_token"
         const val KEY_FIREBASE_PROJECT_ID = "firebase_project_id"
         const val KEY_FIREBASE_PROJECT_NUMBER = "firebase_project_number"
@@ -340,14 +369,29 @@ class RemoteConfigService(
     }
 }
 
+private fun String.maskSensitiveQueryValues(): String {
+    return SENSITIVE_URL_PARAM_KEYS.fold(this) { current, key ->
+        current.replace(Regex("([?&]$key=)[^&#]*")) { matchResult ->
+            "${matchResult.groupValues[1]}MASKED"
+        }
+    }
+}
+
 private data class ConfigRequestDebug(
     val containsAfId: Boolean,
     val containsPushToken: Boolean,
     val containsFirebaseProjectId: Boolean,
+    val containsBundleId: Boolean,
+    val afId: String?,
+    val pushToken: TokenDebugInfo?,
+    val firebaseProjectId: String?,
+    val bundleId: String?,
     val afStatus: String?,
     val deepLinkValue: String?,
     val containsAnyDeepLinkSub: Boolean
 )
+
+private val SENSITIVE_URL_PARAM_KEYS = listOf("push_token", "sub_id_7")
 
 private fun logDebug(message: String) {
     if (BuildConfig.DEBUG) {

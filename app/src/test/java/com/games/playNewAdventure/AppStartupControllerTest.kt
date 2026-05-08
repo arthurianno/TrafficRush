@@ -10,6 +10,8 @@ import com.games.playNewAdventure.startup.domain.ConfigDebugResultType
 import com.games.playNewAdventure.startup.domain.ConfigFetchResult
 import com.games.playNewAdventure.startup.domain.ConfigProvider
 import com.games.playNewAdventure.startup.domain.ConfigProviderMode
+import com.games.playNewAdventure.startup.domain.DEEP_LINK_SOURCE_CONVERSION
+import com.games.playNewAdventure.startup.domain.DEEP_LINK_SOURCE_NONE
 import com.games.playNewAdventure.startup.domain.DeviceDataProvider
 import com.games.playNewAdventure.startup.domain.MockConfigScenario
 import com.games.playNewAdventure.startup.domain.NetworkStatusProvider
@@ -18,6 +20,7 @@ import com.games.playNewAdventure.startup.domain.PushTokenProvider
 import com.games.playNewAdventure.startup.domain.PushTokenProviderMode
 import com.games.playNewAdventure.startup.domain.StartupResult
 import com.games.playNewAdventure.startup.domain.StartupStateRepository
+import com.games.playNewAdventure.startup.domain.toTokenDebugInfo
 import java.io.IOException
 import java.net.SocketTimeoutException
 import kotlinx.coroutines.runBlocking
@@ -304,6 +307,100 @@ class AppStartupControllerTest {
         assertEquals(REAL_APPS_FLYER_UID, snapshot.appsFlyerUid)
         assertTrue(snapshot.appsFlyerUidSentToConfig)
         assertTrue(snapshot.pushTokenSentToConfig)
+        assertEquals("token".toTokenDebugInfo(), snapshot.latestFcmToken)
+        assertEquals("token".toTokenDebugInfo(), snapshot.lastSentPushToken)
+        assertTrue(snapshot.latestFcmTokenSentToConfig)
+        assertEquals(REAL_APPS_FLYER_UID, snapshot.lastSentAfId)
+        assertTrue(snapshot.firebaseProjectIdSentToConfig)
+        assertTrue(snapshot.bundleIdSentToConfig)
+    }
+
+    @Test
+    fun refreshedTokenAfterConfigIsMarkedUnsentUntilNextStartupRequest() = runBlocking {
+        val storage = InMemoryAppStorage().apply {
+            configProviderMode = ConfigProviderMode.REAL
+            attributionProviderMode = AttributionProviderMode.REAL
+            pushTokenProviderMode = PushTokenProviderMode.REAL
+        }
+        val pushProvider = FakePushTokenProvider(pushToken = "first_token")
+        val controller = createController(
+            storage = storage,
+            attributionProvider = FakeAttributionProvider(mapOf("af_id" to REAL_APPS_FLYER_UID)),
+            pushTokenProvider = pushProvider
+        )
+
+        controller.resolveStartup()
+        pushProvider.pushToken = "second_token"
+        controller.refreshDebugDiagnostics()
+
+        val snapshotAfterRefresh = controller.debugSnapshot()
+        assertEquals("second_token".toTokenDebugInfo(), snapshotAfterRefresh.latestFcmToken)
+        assertEquals("first_token".toTokenDebugInfo(), snapshotAfterRefresh.lastSentPushToken)
+        assertFalse(snapshotAfterRefresh.latestFcmTokenSentToConfig)
+        assertFalse(snapshotAfterRefresh.pushTokenSentToConfig)
+
+        controller.resolveStartup()
+
+        val snapshotAfterRestart = controller.debugSnapshot()
+        assertEquals("second_token".toTokenDebugInfo(), snapshotAfterRestart.latestFcmToken)
+        assertEquals("second_token".toTokenDebugInfo(), snapshotAfterRestart.lastSentPushToken)
+        assertTrue(snapshotAfterRestart.latestFcmTokenSentToConfig)
+        assertTrue(snapshotAfterRestart.pushTokenSentToConfig)
+    }
+
+    @Test
+    fun debugSnapshotRequiresNonBlankDeepLinkValueAndAnyDeepLinkSub() = runBlocking {
+        val controller = createController(
+            attributionProvider = FakeAttributionProvider(
+                mapOf(
+                    "af_id" to REAL_APPS_FLYER_UID,
+                    "deep_link_value" to "deep_link_test",
+                    "deep_link_sub1" to "",
+                    "deep_link_sub2" to "deep_test_sub2"
+                ),
+                source = DEEP_LINK_SOURCE_CONVERSION
+            ),
+            configProvider = MockConfigService { MockConfigScenario.SUCCESS_WEBVIEW }
+        )
+
+        controller.resolveStartup()
+
+        val snapshot = controller.debugSnapshot()
+        assertEquals("deep_link_test", snapshot.deepLinkValue)
+        assertEquals(null, snapshot.deepLinkSub1)
+        assertEquals("deep_test_sub2", snapshot.deepLinkSub2)
+        assertTrue(snapshot.hasRequiredDeeplinkParams)
+        assertEquals(DEEP_LINK_SOURCE_CONVERSION, snapshot.deepLinkSource)
+        assertTrue(snapshot.lastConfigContainedDeepLinkValue)
+        assertTrue(snapshot.lastConfigContainedAnyDeepLinkSub)
+    }
+
+    @Test
+    fun mockConfigSuccessReturnsUrlWithMockDeepLinkParamsWhenAttributionHasThem() = runBlocking {
+        val controller = createController(
+            attributionProvider = FakeAttributionProvider(
+                values = mapOf(
+                    "af_status" to "Non-organic",
+                    "af_id" to "mock_af_id_123",
+                    "deep_link_value" to "deep_link_test",
+                    "deep_link_sub1" to "deep_test_sub1"
+                ),
+                source = DEEP_LINK_SOURCE_CONVERSION
+            ),
+            configProvider = MockConfigService { MockConfigScenario.SUCCESS_WEBVIEW }
+        )
+
+        val result = controller.resolveStartup()
+
+        assertTrue(result is StartupResult.ShowWebView)
+        result as StartupResult.ShowWebView
+        assertTrue(result.url.contains("deep_link_value=deep_link_test"))
+        assertTrue(result.url.contains("deep_link_sub1=deep_test_sub1"))
+
+        val snapshot = controller.debugSnapshot()
+        assertTrue(snapshot.lastConfigContainedDeepLinkValue)
+        assertTrue(snapshot.lastConfigContainedAnyDeepLinkSub)
+        assertEquals(DEEP_LINK_SOURCE_CONVERSION, snapshot.deepLinkSource)
     }
 
     private fun createController(
@@ -367,18 +464,25 @@ private class FakeNetworkStatusProvider(
 }
 
 private class FakeAttributionProvider(
-    private val values: Map<String, Any?> = mapOf("af_status" to "Non-organic")
+    private val values: Map<String, Any?> = mapOf("af_status" to "Non-organic"),
+    private val source: String = DEEP_LINK_SOURCE_NONE
 ) : AttributionProvider {
     override suspend fun getConversionData(): AttributionData {
-        return AttributionData(values = values)
+        return AttributionData(
+            values = values,
+            deepLinkSource = source
+        )
     }
 }
 
-private class FakePushTokenProvider : PushTokenProvider {
+private class FakePushTokenProvider(
+    var pushToken: String = "token",
+    private val firebaseProjectId: String = "project"
+) : PushTokenProvider {
     override suspend fun getPushDataOrNull(): PushData {
         return PushData(
-            pushToken = "token",
-            firebaseProjectId = "project"
+            pushToken = pushToken,
+            firebaseProjectId = firebaseProjectId
         )
     }
 }

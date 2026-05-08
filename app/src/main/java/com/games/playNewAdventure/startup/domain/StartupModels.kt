@@ -1,5 +1,7 @@
 package com.games.playNewAdventure.startup.domain
 
+import java.security.MessageDigest
+
 enum class AppMode {
     UNKNOWN,
     WEBVIEW,
@@ -17,13 +19,20 @@ sealed class StartupResult {
 }
 
 data class AttributionData(
-    val values: Map<String, Any?>
+    val values: Map<String, Any?>,
+    val deepLinkSource: String = DEEP_LINK_SOURCE_NONE
 )
 
 data class PushData(
     val pushToken: String?,
     val firebaseProjectId: String?,
     val firebaseProjectNumber: String? = null
+)
+
+data class TokenDebugInfo(
+    val length: Int,
+    val sha256: String,
+    val last4: String
 )
 
 sealed class ConfigFetchResult {
@@ -82,7 +91,12 @@ data class ConfigDebugSnapshot(
     val requestContainedAfId: Boolean = false,
     val requestContainedPushToken: Boolean = false,
     val requestContainedFirebaseProjectId: Boolean = false,
+    val requestContainedBundleId: Boolean = false,
     val requestContainedAnyDeepLinkSub: Boolean = false,
+    val requestAfId: String? = null,
+    val requestPushToken: TokenDebugInfo? = null,
+    val requestFirebaseProjectId: String? = null,
+    val requestBundleId: String? = null,
     val requestAfStatus: String? = null,
     val requestDeepLinkValue: String? = null,
     val sanitizedResponseBody: String? = null
@@ -101,12 +115,19 @@ data class StartupDebugSnapshot(
     val appsFlyerUid: String? = null,
     val appsFlyerUidSentToConfig: Boolean = false,
     val fcmTokenAvailable: Boolean = false,
+    val latestFcmToken: TokenDebugInfo? = null,
+    val lastSentPushToken: TokenDebugInfo? = null,
+    val latestFcmTokenSentToConfig: Boolean = false,
     val firebaseProjectId: String? = null,
+    val lastSentAfId: String? = null,
+    val firebaseProjectIdSentToConfig: Boolean = false,
+    val bundleIdSentToConfig: Boolean = false,
     val pushTokenSentToConfig: Boolean = false,
     val lastConfigResponse: ConfigDebugSnapshot? = null,
     val lastStartupDecision: String? = null,
     val lastStartupDecisionReason: String? = null,
     val lastAttributionData: Map<String, Any?>? = null,
+    val deepLinkSource: String = DEEP_LINK_SOURCE_NONE,
     val deepLinkValue: String? = null,
     val deepLinkSub1: String? = null,
     val deepLinkSub2: String? = null,
@@ -114,3 +135,25 @@ data class StartupDebugSnapshot(
     val lastConfigContainedDeepLinkValue: Boolean = false,
     val lastConfigContainedAnyDeepLinkSub: Boolean = false
 )
+
+const val DEEP_LINK_SOURCE_NONE = "none"
+const val DEEP_LINK_SOURCE_UDL = "UDL"
+const val DEEP_LINK_SOURCE_CONVERSION = "conversion"
+const val DEEP_LINK_SOURCE_APP_OPEN_ATTRIBUTION = "appOpenAttribution"
+
+fun String?.toTokenDebugInfo(): TokenDebugInfo? {
+    val token = this?.takeIf { it.isNotBlank() } ?: return null
+    val digest = MessageDigest.getInstance("SHA-256")
+        .digest(token.toByteArray(Charsets.UTF_8))
+        .joinToString(separator = "") { byte -> "%02x".format(byte) }
+        .take(TOKEN_HASH_PREFIX_LENGTH)
+
+    return TokenDebugInfo(
+        length = token.length,
+        sha256 = digest,
+        last4 = token.takeLast(TOKEN_LAST_CHARS)
+    )
+}
+
+private const val TOKEN_HASH_PREFIX_LENGTH = 12
+private const val TOKEN_LAST_CHARS = 4

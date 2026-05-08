@@ -10,6 +10,7 @@ import com.games.playNewAdventure.startup.domain.ConfigDiagnosticsProvider
 import com.games.playNewAdventure.startup.domain.ConfigFetchResult
 import com.games.playNewAdventure.startup.domain.ConfigProvider
 import com.games.playNewAdventure.startup.domain.ConfigProviderMode
+import com.games.playNewAdventure.startup.domain.DEEP_LINK_SOURCE_NONE
 import com.games.playNewAdventure.startup.domain.DeviceDataProvider
 import com.games.playNewAdventure.startup.domain.MockConfigScenario
 import com.games.playNewAdventure.startup.domain.NetworkStatusProvider
@@ -19,6 +20,8 @@ import com.games.playNewAdventure.startup.domain.PushTokenProvider
 import com.games.playNewAdventure.startup.domain.StartupDebugSnapshot
 import com.games.playNewAdventure.startup.domain.StartupResult
 import com.games.playNewAdventure.startup.domain.StartupStateRepository
+import com.games.playNewAdventure.startup.domain.TokenDebugInfo
+import com.games.playNewAdventure.startup.domain.toTokenDebugInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -34,14 +37,14 @@ class AppStartupController(
 ) {
     // Cached for DebugPanel display — populated after each config request
     @Volatile private var lastAppsFlyerUid: String? = null
-    @Volatile private var lastAppsFlyerUidSentToConfig: String? = null
     @Volatile private var lastFcmTokenAvailable: Boolean = false
     @Volatile private var lastFirebaseProjectId: String? = null
-    @Volatile private var lastPushTokenSentToConfig: Boolean = false
     @Volatile private var lastConfigResponse: ConfigDebugSnapshot? = null
     @Volatile private var lastStartupDecision: String? = null
     @Volatile private var lastStartupDecisionReason: String? = null
     @Volatile private var cachedAttributionData: Map<String, Any?>? = null
+    @Volatile private var cachedDeepLinkSource: String = DEEP_LINK_SOURCE_NONE
+    @Volatile private var lastFcmToken: TokenDebugInfo? = null
     suspend fun resolveStartup(): StartupResult = withContext(Dispatchers.IO) {
         when (storage.appMode) {
             AppMode.FANTIC -> {
@@ -78,8 +81,6 @@ class AppStartupController(
 
     fun setConfigProviderMode(mode: ConfigProviderMode) {
         storage.configProviderMode = mode
-        lastAppsFlyerUidSentToConfig = null
-        lastPushTokenSentToConfig = false
     }
 
     fun setAttributionProviderMode(mode: AttributionProviderMode) {
@@ -107,38 +108,55 @@ class AppStartupController(
     }
 
     fun debugSnapshot(): StartupDebugSnapshot {
-            val deepLinkValue = cachedAttributionData?.get("deep_link_value")?.toString()?.takeIf { it.isNotBlank() }
-            val deepLinkSub1 = cachedAttributionData?.get("deep_link_sub1")?.toString()?.takeIf { it.isNotBlank() }
-            val deepLinkSub2 = cachedAttributionData?.get("deep_link_sub2")?.toString()?.takeIf { it.isNotBlank() }
-            val hasRequiredDeeplinkParams = deepLinkValue != null && 
-                cachedAttributionData?.keys?.any { it.startsWith("deep_link_sub") } == true
+        val deepLinkValue = cachedAttributionData?.get(KEY_DEEP_LINK_VALUE).toNonBlankAttributionString()
+        val deepLinkSub1 = cachedAttributionData?.get(KEY_DEEP_LINK_SUB1).toNonBlankAttributionString()
+        val deepLinkSub2 = cachedAttributionData?.get(KEY_DEEP_LINK_SUB2).toNonBlankAttributionString()
+        val hasAnyDeepLinkSub = cachedAttributionData.orEmpty().any { (key, value) ->
+            key.startsWith(KEY_DEEP_LINK_SUB_PREFIX) && value.toNonBlankAttributionString() != null
+        }
+        val hasRequiredDeeplinkParams = deepLinkValue != null && hasAnyDeepLinkSub
+        val lastSentPushToken = lastConfigResponse?.requestPushToken
+        val latestFcmTokenSentToConfig = lastFcmToken != null &&
+            lastFcmToken?.sha256 == lastSentPushToken?.sha256 &&
+            lastConfigResponse?.source == ConfigProviderMode.REAL &&
+            lastConfigResponse?.requestContainedPushToken == true
 
-            return StartupDebugSnapshot(
-                appMode = storage.appMode,
-                lastWebViewUrl = storage.lastWebViewUrl,
-                pushPromptDeclinedAtSeconds = storage.pushPromptDeclinedAtSeconds,
-                pushPermissionGranted = storage.pushPermissionGranted,
-                mockConfigScenario = storage.mockConfigScenario,
-                configProviderMode = storage.configProviderMode,
-                attributionProviderMode = storage.attributionProviderMode,
-                pushTokenProviderMode = storage.pushTokenProviderMode,
-                appsFlyerUid = lastAppsFlyerUid,
-                appsFlyerUidSentToConfig = !lastAppsFlyerUid.isNullOrBlank() &&
-                    lastAppsFlyerUid == lastAppsFlyerUidSentToConfig,
-                fcmTokenAvailable = lastFcmTokenAvailable,
-                firebaseProjectId = lastFirebaseProjectId,
-                pushTokenSentToConfig = lastPushTokenSentToConfig,
-                lastConfigResponse = lastConfigResponse,
-                lastStartupDecision = lastStartupDecision,
-                lastStartupDecisionReason = lastStartupDecisionReason,
-                lastAttributionData = cachedAttributionData,
-                deepLinkValue = deepLinkValue,
-                deepLinkSub1 = deepLinkSub1,
-                deepLinkSub2 = deepLinkSub2,
-                hasRequiredDeeplinkParams = hasRequiredDeeplinkParams,
-                lastConfigContainedDeepLinkValue = lastConfigResponse?.requestDeepLinkValue?.isNotBlank() == true,
-                lastConfigContainedAnyDeepLinkSub = lastConfigResponse?.requestContainedAnyDeepLinkSub == true
-            )
+        return StartupDebugSnapshot(
+            appMode = storage.appMode,
+            lastWebViewUrl = storage.lastWebViewUrl,
+            pushPromptDeclinedAtSeconds = storage.pushPromptDeclinedAtSeconds,
+            pushPermissionGranted = storage.pushPermissionGranted,
+            mockConfigScenario = storage.mockConfigScenario,
+            configProviderMode = storage.configProviderMode,
+            attributionProviderMode = storage.attributionProviderMode,
+            pushTokenProviderMode = storage.pushTokenProviderMode,
+            appsFlyerUid = lastAppsFlyerUid,
+            appsFlyerUidSentToConfig = !lastAppsFlyerUid.isNullOrBlank() &&
+                lastAppsFlyerUid == lastConfigResponse?.requestAfId &&
+                lastConfigResponse?.source == ConfigProviderMode.REAL,
+            fcmTokenAvailable = lastFcmTokenAvailable,
+            latestFcmToken = lastFcmToken,
+            lastSentPushToken = lastSentPushToken,
+            latestFcmTokenSentToConfig = latestFcmTokenSentToConfig,
+            firebaseProjectId = lastFirebaseProjectId,
+            lastSentAfId = lastConfigResponse?.requestAfId,
+            firebaseProjectIdSentToConfig = lastConfigResponse?.source == ConfigProviderMode.REAL &&
+                lastConfigResponse?.requestContainedFirebaseProjectId == true,
+            bundleIdSentToConfig = lastConfigResponse?.source == ConfigProviderMode.REAL &&
+                lastConfigResponse?.requestBundleId == EXPECTED_BUNDLE_ID,
+            pushTokenSentToConfig = latestFcmTokenSentToConfig,
+            lastConfigResponse = lastConfigResponse,
+            lastStartupDecision = lastStartupDecision,
+            lastStartupDecisionReason = lastStartupDecisionReason,
+            lastAttributionData = cachedAttributionData,
+            deepLinkSource = cachedDeepLinkSource,
+            deepLinkValue = deepLinkValue,
+            deepLinkSub1 = deepLinkSub1,
+            deepLinkSub2 = deepLinkSub2,
+            hasRequiredDeeplinkParams = hasRequiredDeeplinkParams,
+            lastConfigContainedDeepLinkValue = lastConfigResponse?.requestDeepLinkValue?.isNotBlank() == true,
+            lastConfigContainedAnyDeepLinkSub = lastConfigResponse?.requestContainedAnyDeepLinkSub == true
+        )
     }
 
     private suspend fun resolveFirstLaunch(): StartupResult {
@@ -227,21 +245,17 @@ class AppStartupController(
             attributionData = attributionData,
             pushData = pushData
         )
-        val configRequestSentToServer = storage.configProviderMode == ConfigProviderMode.REAL
-        lastAppsFlyerUidSentToConfig = if (configRequestSentToServer) {
-            lastAppsFlyerUid
-        } else {
-            null
-        }
-        lastPushTokenSentToConfig = configRequestSentToServer && lastFcmTokenAvailable
-
         return runCatching {
             configProvider.fetchConfig(
                 attributionData = attributionData,
                 pushData = pushData,
                 deviceData = deviceData
             ).also { result ->
-                recordConfigResponse(result)
+                recordConfigResponse(
+                    result = result,
+                    attributionData = attributionData,
+                    pushData = pushData
+                )
             }
         }.getOrElse { failure ->
             recordSyntheticConfigTransientError("Config error: ${failure.message}")
@@ -280,17 +294,24 @@ class AppStartupController(
 
     private fun clearRuntimeDiagnostics() {
         lastAppsFlyerUid = null
-        lastAppsFlyerUidSentToConfig = null
         lastFcmTokenAvailable = false
         lastFirebaseProjectId = null
-        lastPushTokenSentToConfig = false
+        lastFcmToken = null
         cachedAttributionData = null
+        cachedDeepLinkSource = DEEP_LINK_SOURCE_NONE
     }
 
-    private fun recordConfigResponse(result: ConfigFetchResult) {
+    private fun recordConfigResponse(
+        result: ConfigFetchResult,
+        attributionData: AttributionData,
+        pushData: PushData?
+    ) {
         lastConfigResponse = (configProvider as? ConfigDiagnosticsProvider)
             ?.lastConfigDebugSnapshot()
-            ?: result.toSyntheticConfigDebugSnapshot()
+            ?: result.toSyntheticConfigDebugSnapshot(
+                attributionData = attributionData,
+                pushData = pushData
+            )
 
         debugLogger(
             "Parsed config result: " +
@@ -312,7 +333,12 @@ class AppStartupController(
         debugLogger("Parsed config result: source=${storage.configProviderMode} result=TransientError error=$message")
     }
 
-    private fun ConfigFetchResult.toSyntheticConfigDebugSnapshot(): ConfigDebugSnapshot {
+    private fun ConfigFetchResult.toSyntheticConfigDebugSnapshot(
+        attributionData: AttributionData,
+        pushData: PushData?
+    ): ConfigDebugSnapshot {
+        val afId = attributionData.values[KEY_AF_ID].toNonBlankAttributionString()
+        val pushToken = pushData?.pushToken.toTokenDebugInfo()
         return ConfigDebugSnapshot(
             source = storage.configProviderMode,
             resultType = when (this) {
@@ -330,7 +356,19 @@ class AppStartupController(
                 is ConfigFetchResult.Success -> null
                 is ConfigFetchResult.Negative -> message
                 is ConfigFetchResult.TransientError -> reason
-            }
+            },
+            requestContainedAfId = afId != null,
+            requestContainedPushToken = pushToken != null,
+            requestContainedFirebaseProjectId = !pushData?.firebaseProjectId.isNullOrBlank(),
+            requestContainedBundleId = true,
+            requestContainedAnyDeepLinkSub = attributionData.values.any { (key, value) ->
+                key.startsWith(KEY_DEEP_LINK_SUB_PREFIX) && value.toNonBlankAttributionString() != null
+            },
+            requestAfId = afId,
+            requestPushToken = pushToken,
+            requestFirebaseProjectId = pushData?.firebaseProjectId?.takeIf { it.isNotBlank() },
+            requestBundleId = EXPECTED_BUNDLE_ID,
+            requestDeepLinkValue = attributionData.values[KEY_DEEP_LINK_VALUE].toNonBlankAttributionString()
         )
     }
 
@@ -344,10 +382,11 @@ class AppStartupController(
         attributionData: AttributionData?,
         pushData: PushData?
     ) {
-        lastAppsFlyerUid = attributionData?.values?.get("af_id")?.toString()
-            ?.takeIf { it.isNotBlank() }
+        lastAppsFlyerUid = attributionData?.values?.get("af_id").toNonBlankAttributionString()
         cachedAttributionData = attributionData?.values
+        cachedDeepLinkSource = attributionData?.deepLinkSource ?: DEEP_LINK_SOURCE_NONE
         lastFcmTokenAvailable = !pushData?.pushToken.isNullOrBlank()
+        lastFcmToken = pushData?.pushToken.toTokenDebugInfo()
         lastFirebaseProjectId = pushData?.firebaseProjectId
     }
 
@@ -357,5 +396,16 @@ class AppStartupController(
         const val DECISION_WEBVIEW = "WEBVIEW"
         const val DECISION_FANTIC = "FANTIC"
         const val DECISION_NO_INTERNET = "NO_INTERNET"
+        const val KEY_DEEP_LINK_VALUE = "deep_link_value"
+        const val KEY_AF_ID = "af_id"
+        const val KEY_DEEP_LINK_SUB_PREFIX = "deep_link_sub"
+        const val KEY_DEEP_LINK_SUB1 = "deep_link_sub1"
+        const val KEY_DEEP_LINK_SUB2 = "deep_link_sub2"
+        const val EXPECTED_BUNDLE_ID = "com.games.playNewAdventure"
     }
+}
+
+private fun Any?.toNonBlankAttributionString(): String? {
+    return this?.toString()
+        ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
 }
